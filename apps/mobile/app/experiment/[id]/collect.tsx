@@ -1,22 +1,26 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { EventModal } from '@/components/collection/EventModal';
+import { ConnectionCard } from '@/components/devices/ConnectionCard';
+import type { SensorHint } from '@/components/forms/FieldRenderer';
 import { initialValues, VariableForm } from '@/components/forms/VariableForm';
 import QRScanner from '@/components/qrcode/QRScanner';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Colors } from '@/constants/colors';
 import { parseScannedCode } from '@/core/codes';
+import { formatReading, readingToValue } from '@/core/device/binding';
 import type { GeoPoint, ProtocolVariable, ValueMap } from '@/core/types';
 import { validateValues, type ValidationError } from '@/core/validation';
 import { sortVariables } from '@/core/variables';
-import { getDb, } from '@/database/connection';
+import { getDb } from '@/database/connection';
 import { uuid } from '@/database/db';
-import type { Experiment, Protocol, Sample, Session } from '@/database/models';
+import type { Experiment, Protocol, Sample, SensorBinding, Session } from '@/database/models';
+import { listBindings, listDevices } from '@/database/repo/devices';
 import { getExperiment, getProtocol } from '@/database/repo/experiments';
 import { createObservation, ObservationValidationError } from '@/database/repo/observations';
 import { findSampleByCode, getSample, listSamples } from '@/database/repo/samples';
@@ -24,6 +28,7 @@ import { closeSession, getOpenSession, observedSampleIds, openSession, recordEve
 import { applyPhoto, persistFormMedia, takePhoto } from '@/lib/camera';
 import { formatValue } from '@/lib/format-value';
 import { captureLocation } from '@/lib/location';
+import { useDevices } from '@/stores/devices';
 import { currentActor, useSettings } from '@/stores/settings';
 import { formatRelative } from '@/utils/formatters';
 
@@ -52,12 +57,21 @@ export default function CollectScreen() {
   const [query, setQuery] = useState('');
   const [eventAt, setEventAt] = useState<string | null>(null);
   const [notes, setNotes] = useState('');
+  const [bindings, setBindings] = useState<SensorBinding[]>([]);
+  const [deviceNames, setDeviceNames] = useState<Map<string, string>>(new Map());
+  /** Leitura de sensor usada em cada campo (proveniência da observação) */
+  const [readingIds, setReadingIds] = useState<Record<string, string>>({});
+  const [showDevices, setShowDevices] = useState(false);
+  const connections = useDevices((s) => s.connections);
+  const attachDevices = useDevices((s) => s.attach);
 
   const load = useCallback(async () => {
     const db = await getDb();
     const e = await getExperiment(db, id);
     setExperiment(e);
     setSamples(await listSamples(db, id));
+    setBindings(await listBindings(db, id));
+    setDeviceNames(new Map((await listDevices(db)).map((d) => [d.id, d.name])));
     const open = await getOpenSession(db, id);
     setSession(open);
     if (open) {
@@ -71,11 +85,57 @@ export default function CollectScreen() {
     void load();
   }, [load]);
 
+  // Enquanto a sessão está aberta nesta tela, leituras e eventos dos dispositivos são gravados nela
+  const sessionId = session?.id;
+  useEffect(() => {
+    if (!sessionId) return;
+    void attachDevices({ experimentId: id, sessionId });
+    return () => {
+      void attachDevices(null);
+    };
+  }, [sessionId, id, attachDevices]);
+
   const observationVars = useMemo(
     () => sortVariables((protocol?.variables ?? []).filter((v): v is ProtocolVariable => v.scope === 'observation')),
     [protocol],
   );
   const sampleVars = useMemo(() => sortVariables((protocol?.variables ?? []).filter((v) => v.scope === 'sample')), [protocol]);
+  const readFromSensor = useCallback(async (variable: ProtocolVariable, binding: SensorBinding) => {
+    try {
+      const result = await useDevices.getState().readSensor(binding.deviceId, binding.sensorId);
+      const converted = readingToValue(result.raw, result.sensor, variable);
+      if (!converted.ok) {
+        Alert.alert(variable.label, converted.reason);
+        return;
+      }
+      setValues((v) => ({ ...v, [variable.key]: converted.value }));
+      const readingId = result.readingId;
+      if (readingId) setReadingIds((ids) => ({ ...ids, [variable.key]: readingId }));
+    } catch (err) {
+      Alert.alert('Sensor', err instanceof Error ? err.message : String(err));
+    }
+  }, []);
+
+  const sensorHints = useMemo(() => {
+    const hints: Record<string, SensorHint> = {};
+    const active = Object.values(connections);
+    for (const binding of bindings) {
+      const variable = observationVars.find((v) => v.key === binding.variableKey);
+      if (!variable) continue;
+      const connection = active.find((c) => c.device?.id === binding.deviceId && c.status === 'connected');
+      const sensor = connection?.manifest?.sensors.find((s) => s.id === binding.sensorId);
+      hints[variable.key] = {
+        source: `${connection?.name ?? deviceNames.get(binding.deviceId) ?? binding.deviceId} · ${sensor?.label ?? binding.sensorId}`,
+        latest: connection ? formatReading(connection.latest[binding.sensorId]?.value, sensor) : 'desconectado',
+        onRead: () => void readFromSensor(variable, binding),
+      };
+    }
+    return hints;
+  }, [bindings, connections, observationVars, deviceNames, readFromSensor]);
+
+  const activeDevices = Object.values(connections);
+  const streamingCount = activeDevices.filter((c) => c.streaming).length;
+
   const pending = useMemo(() => samples.filter((s) => !observed.has(s.id)), [samples, observed]);
 
   const filtered = useMemo(() => {
@@ -114,6 +174,7 @@ export default function CollectScreen() {
         text: 'Encerrar',
         style: 'destructive',
         onPress: async () => {
+          await attachDevices(null);
           await closeSession(await getDb(), session.id, currentActor());
           router.back();
         },
@@ -137,6 +198,7 @@ export default function CollectScreen() {
     const start = () => {
       setSample(s);
       setValues(initialValues(observationVars));
+      setReadingIds({});
       setErrors([]);
       setStep('form');
     };
@@ -191,13 +253,14 @@ export default function CollectScreen() {
       const media = await persistFormMedia(observationVars, final, id, `${experiment.code}_${sample.code}_${session.code}`);
       await createObservation(
         await getDb(),
-        { sessionId: session.id, sampleId: sample.id, data: media.values, location, files: media.files, collectedAt: now },
+        { sessionId: session.id, sampleId: sample.id, data: media.values, location, files: media.files, readingIds: Object.values(readingIds), collectedAt: now },
         currentActor(),
       );
       setObserved((o) => new Set(o).add(sample.id));
       await remindBackup();
       setSample(null);
       setValues({});
+      setReadingIds({});
       setStep('identify');
       if (next) setScan({ kind: 'sample' });
     } catch (err) {
@@ -293,7 +356,24 @@ export default function CollectScreen() {
           <Ionicons name="flag-outline" size={18} color={Colors.primary} />
           <Text style={styles.toolText}>Evento</Text>
         </TouchableOpacity>
+        <TouchableOpacity style={styles.toolBtn} onPress={() => setShowDevices((v) => !v)} accessibilityLabel="Dispositivos">
+          <Ionicons name={streamingCount > 0 ? 'radio-button-on' : 'bluetooth-outline'} size={18} color={streamingCount > 0 ? Colors.error : Colors.primary} />
+          <Text style={styles.toolText}>
+            Sensores{activeDevices.length > 0 ? ` (${activeDevices.length})` : ''}
+          </Text>
+        </TouchableOpacity>
       </View>
+
+      {showDevices ? (
+        <ScrollView style={styles.devicePanel} contentContainerStyle={{ gap: 8, padding: 16 }}>
+          {activeDevices.length === 0 ? <Text style={styles.help}>Nenhum dispositivo conectado.</Text> : null}
+          {activeDevices.map((connection) => (
+            <ConnectionCard key={connection.bleId} connection={connection} compact />
+          ))}
+          <Text style={styles.help}>Enquanto esta tela está aberta, tudo o que os dispositivos enviam é gravado como leitura bruta desta sessão.</Text>
+          <Button title="Conectar dispositivo" variant="outline" size="small" onPress={() => router.push('/devices' as Href)} />
+        </ScrollView>
+      ) : null}
 
       {step === 'identify' ? (
         <View style={{ flex: 1, padding: 16, gap: 12 }}>
@@ -349,7 +429,17 @@ export default function CollectScreen() {
               values={values}
               errors={errors}
               detailed={detailed}
-              onChange={(key, value) => setValues((v) => ({ ...v, [key]: value }))}
+              sensorHints={sensorHints}
+              onChange={(key, value) => {
+                setValues((v) => ({ ...v, [key]: value }));
+                // valor editado à mão deixa de ser a leitura do sensor
+                setReadingIds((ids) => {
+                  if (!(key in ids)) return ids;
+                  const next = { ...ids };
+                  delete next[key];
+                  return next;
+                });
+              }}
               onCaptureImage={async (key, angle, config) => {
                 const uri = await takePhoto(config);
                 if (uri) setValues((v) => applyPhoto(v, key, uri, angle));
@@ -400,5 +490,6 @@ const styles = StyleSheet.create({
   banner: { flexDirection: 'row', gap: 10, alignItems: 'center', backgroundColor: Colors.primarySurface, borderColor: Colors.primaryLight },
   bannerTitle: { fontSize: 18, fontWeight: '800', color: Colors.primaryDark },
   bannerMeta: { fontSize: 12, color: Colors.textSecondary },
+  devicePanel: { maxHeight: 320, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.border },
   footer: { flexDirection: 'row', gap: 8, padding: 12, backgroundColor: Colors.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.border },
 });
