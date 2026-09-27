@@ -381,3 +381,23 @@ export async function getExperimentStats(db: Db, experiment: Experiment): Promis
     lastCollectionAt: row?.last_collection_at ?? null,
   };
 }
+
+/** IDs de variáveis que já têm dados (não devem ser renomeados). */
+export async function usedVariableKeys(db: Db, experimentId: string): Promise<string[]> {
+  const rows = await db.all<{ key: string }>(
+    `SELECT DISTINCT j.key AS key FROM observations o, json_each(o.data) j WHERE o.experiment_id = ?
+     UNION
+     SELECT DISTINCT j.key AS key FROM samples s, json_each(s.data) j WHERE s.experiment_id = ?`,
+    [experimentId, experimentId],
+  );
+  return rows.map((r) => r.key);
+}
+
+/** Quantas sessões usaram cada versão do protocolo. */
+export async function sessionsPerProtocol(db: Db, experimentId: string): Promise<Map<string, number>> {
+  const rows = await db.all<{ protocol_id: string; n: number }>(
+    'SELECT protocol_id, COUNT(*) AS n FROM sessions WHERE experiment_id = ? GROUP BY protocol_id',
+    [experimentId],
+  );
+  return new Map(rows.map((r) => [r.protocol_id, r.n]));
+}

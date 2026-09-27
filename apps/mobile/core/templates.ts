@@ -187,7 +187,6 @@ export const BUILTIN_TEMPLATES: ExperimentTemplate[] = [
       sessionsExpected: 4,
     },
     variables: [
-      s('tratamento', 'Tratamento', 'short_text', 1, { role: 'independent' }),
       o('ha_doenca', 'Há sintomas de doença?', 'boolean', 1, { required: true, role: 'dependent', config: { defaultValue: false } }),
       o('doenca', 'Doença', 'category', 2, { required: true, role: 'dependent', config: { options: ['Ferrugem', 'Mancha angular', 'Antracnose', 'Oídio', 'Outra'] }, showIf: { variable: 'ha_doenca', op: 'truthy' } }),
       o('severidade', 'Severidade', 'scale', 3, { unit: '{score}', required: true, role: 'dependent', config: { min: 0, max: 9, labels: { 0: 'Sem sintomas', 9: 'Muito severo' } }, showIf: { variable: 'ha_doenca', op: 'truthy' } }),

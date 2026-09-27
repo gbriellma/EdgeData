@@ -27,7 +27,7 @@ async function setup(db: Db) {
     ACTOR,
   );
   const experiment = (await getExperiment(db, experimentId))!;
-  await createSamplesFromPlan(db, experimentId, planSamples(experiment.design), ['tratamento'], ACTOR);
+  await createSamplesFromPlan(db, experimentId, planSamples(experiment.design), [], ACTOR);
   const sample = (await findSampleByCode(db, experimentId, 'f1_r1'))!;
   const session = await openSession(db, experimentId, { operator: ACTOR });
   return { experimentId, experiment, sample, session };
@@ -190,5 +190,15 @@ describe('eventos, dispositivos e releases', () => {
     expect((await listReleases(db, experimentId)).map((r) => r.version)).toEqual(['1.0.0']);
     await expect(db.run("UPDATE dataset_releases SET version = '9'")).rejects.toThrow(/imutáveis/);
     await expect(recordRelease(db, { datasetId, version: '1.0.0', formats: [], checksums: '', fileCount: 0, totalBytes: 0, createdAt: '' }, ACTOR)).rejects.toThrow();
+  });
+});
+
+describe('consultas auxiliares', () => {
+  it('lista IDs de variáveis com dados', async () => {
+    const { experimentId, session, sample } = await setup(db);
+    const { usedVariableKeys, sessionsPerProtocol } = await import('./repo/experiments');
+    await createObservation(db, { sessionId: session.id, sampleId: sample.id, data: { ha_doenca: true, doenca: 'Ferrugem', severidade: 2 } }, ACTOR);
+    expect((await usedVariableKeys(db, experimentId)).sort()).toEqual(['doenca', 'ha_doenca', 'severidade']);
+    expect([...(await sessionsPerProtocol(db, experimentId)).values()]).toEqual([1]);
   });
 });
