@@ -69,6 +69,9 @@ export interface ExportEvent {
   kind: 'manual' | 'device';
   deviceId?: string | null;
   data?: unknown;
+  createdBy?: string | null;
+  retractedAt?: string | null;
+  retractionReason?: string | null;
 }
 
 export interface ExportReading {

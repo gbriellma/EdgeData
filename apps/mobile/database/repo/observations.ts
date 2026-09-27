@@ -242,6 +242,8 @@ export interface ObservationFilter {
   /** 'current' (padrão), 'all' ou 'retracted' */
   status?: 'current' | 'all' | 'retracted';
   limit?: number;
+  /** 'desc' (padrão, mais recentes primeiro) ou 'asc' (cronológica, para exportação) */
+  order?: 'asc' | 'desc';
 }
 
 export async function listObservations(db: Db, filter: ObservationFilter): Promise<Observation[]> {
@@ -259,7 +261,7 @@ export async function listObservations(db: Db, filter: ObservationFilter): Promi
   if (status === 'current') where.push('superseded_by IS NULL AND retracted_at IS NULL');
   if (status === 'retracted') where.push('retracted_at IS NOT NULL');
   const limit = filter.limit ? `LIMIT ${Math.floor(filter.limit)}` : '';
-  const rows = await db.all<ObservationRow>(`SELECT * FROM observations WHERE ${where.join(' AND ')} ORDER BY collected_at DESC, revision DESC ${limit}`, params);
+  const rows = await db.all<ObservationRow>(`SELECT * FROM observations WHERE ${where.join(' AND ')} ORDER BY ${filter.order === 'asc' ? 'collected_at ASC, revision ASC, rowid ASC' : 'collected_at DESC, revision DESC, rowid DESC'} ${limit}`, params);
   return rows.map(toObservation);
 }
 

@@ -278,6 +278,9 @@ export function eventsTable(input: ExportInput): Table {
       { name: 'kind', type: 'string', description: 'manual ou device' },
       { name: 'device_id', type: 'string' },
       { name: 'data', type: 'json' },
+      { name: 'created_by', type: 'string' },
+      { name: 'retracted_at', type: 'datetime', description: 'Preenchido quando o evento foi retratado' },
+      { name: 'retraction_reason', type: 'string' },
     ],
     rows: input.events.map((e) => ({
       event_id: e.id,
@@ -288,6 +291,9 @@ export function eventsTable(input: ExportInput): Table {
       kind: e.kind,
       device_id: e.deviceId ?? null,
       data: e.data ?? null,
+      created_by: e.createdBy ?? null,
+      retracted_at: e.retractedAt ?? null,
+      retraction_reason: e.retractionReason ?? null,
     })),
   };
 }

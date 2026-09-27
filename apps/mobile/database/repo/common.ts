@@ -88,3 +88,19 @@ export async function ensureWorkspace(db: Db): Promise<string> {
   await db.run('INSERT INTO workspaces (id, name, created_at) VALUES (?, ?, ?)', [id, 'Meu espaço de trabalho', nowIso()]);
   return id;
 }
+
+/** Toda a auditoria ligada a um experimento (ele e suas entidades). */
+export async function listExperimentAudit(db: Db, experimentId: string): Promise<AuditEntry[]> {
+  const rows = await db.all<AuditRow>(
+    `SELECT * FROM audit_log WHERE entity_id = ?1
+       OR entity_id IN (SELECT id FROM protocols WHERE experiment_id = ?1)
+       OR entity_id IN (SELECT id FROM samples WHERE experiment_id = ?1)
+       OR entity_id IN (SELECT id FROM sessions WHERE experiment_id = ?1)
+       OR entity_id IN (SELECT id FROM observations WHERE experiment_id = ?1)
+       OR entity_id IN (SELECT id FROM events WHERE experiment_id = ?1)
+       OR entity_id IN (SELECT id FROM datasets WHERE experiment_id = ?1)
+     ORDER BY at`,
+    [experimentId],
+  );
+  return rows.map(toAudit);
+}

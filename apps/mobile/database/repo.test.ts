@@ -214,3 +214,14 @@ describe('contagens de sessão', () => {
     expect([...(await observedSampleIds(db, session.id))]).toEqual([sample.id]);
   });
 });
+
+describe('auditoria do experimento', () => {
+  it('reúne entradas do experimento e de suas entidades', async () => {
+    const { experimentId, session, sample } = await setup(db);
+    const { listExperimentAudit } = await import('./repo/common');
+    const obs = await createObservation(db, { sessionId: session.id, sampleId: sample.id, data: { ha_doenca: false } }, ACTOR);
+    await retractObservation(db, obs.id, 'teste', ACTOR);
+    const actions = (await listExperimentAudit(db, experimentId)).map((a) => `${a.entity}:${a.action}`);
+    expect(actions).toEqual(expect.arrayContaining(['experiment:create', 'protocol:create', 'experiment:create_samples', 'session:open', 'observation:retract']));
+  });
+});
