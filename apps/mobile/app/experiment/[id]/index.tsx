@@ -10,6 +10,8 @@ import { describeDesign } from '@/core/design';
 import type { ExperimentTemplate } from '@/core/templates';
 import { getDb } from '@/database/connection';
 import { getCurrentProtocol, getExperiment, getExperimentStats, setExperimentArchived, setExperimentStatus } from '@/database/repo/experiments';
+import { loadQualityReport } from '@/database/quality-report';
+import { countDrafts } from '@/database/repo/drafts';
 import { getOpenSession } from '@/database/repo/sessions';
 import { useAsync } from '@/hooks/useAsync';
 import { saveCustomTemplate, shareTemplate } from '@/lib/templates';
@@ -27,8 +29,14 @@ export default function ExperimentDashboard() {
     const db = await getDb();
     const experiment = await getExperiment(db, id);
     if (!experiment) return null;
-    const [stats, protocol, openSession] = await Promise.all([getExperimentStats(db, experiment), getCurrentProtocol(db, id), getOpenSession(db, id)]);
-    return { experiment, stats, protocol, openSession };
+    const [stats, protocol, openSession, quality, drafts] = await Promise.all([
+      getExperimentStats(db, experiment),
+      getCurrentProtocol(db, id),
+      getOpenSession(db, id),
+      loadQualityReport(db, id),
+      countDrafts(db, id),
+    ]);
+    return { experiment, stats, protocol, openSession, quality: quality.report, drafts };
   }, [id]);
 
   useEffect(() => {
@@ -50,13 +58,16 @@ export default function ExperimentDashboard() {
     );
   }
 
-  const { experiment, stats, protocol, openSession } = data;
+  const { experiment, stats, protocol, openSession, quality, drafts } = data;
+  const current = quality.pendingBySession[0];
   const progress = stats.expectedObservations > 0 ? Math.min(1, stats.observations / stats.expectedObservations) : 0;
 
   const actions: Action[] = [
     { label: 'Amostras', icon: 'leaf-outline', href: { pathname: '/experiment/[id]/samples', params: { id } }, hint: `${stats.samples}` },
     { label: 'Observações', icon: 'list-outline', href: { pathname: '/experiment/[id]/observations', params: { id } }, hint: `${stats.observations}` },
     { label: 'Sessões e eventos', icon: 'time-outline', href: { pathname: '/experiment/[id]/sessions', params: { id } }, hint: `${stats.sessions}` },
+    { label: 'Análise', icon: 'stats-chart-outline', href: { pathname: '/experiment/[id]/analysis', params: { id } } as Href },
+    { label: 'Importar planilha', icon: 'document-attach-outline', href: { pathname: '/experiment/[id]/import', params: { id } } as Href },
     { label: 'Protocolo', icon: 'options-outline', href: { pathname: '/experiment/[id]/variables', params: { id } }, hint: `v${protocol.version}` },
     { label: 'Etiquetas QR', icon: 'qr-code-outline', href: { pathname: '/experiment/[id]/qr-codes', params: { id } } as Href },
     { label: 'Sensores', icon: 'bluetooth-outline', href: { pathname: '/experiment/[id]/sensors', params: { id } } as Href },
@@ -125,7 +136,7 @@ export default function ExperimentDashboard() {
         <View style={styles.progressHeader}>
           <Text style={styles.progressTitle}>Progresso da coleta</Text>
           <Text style={styles.progressValue}>
-            {stats.observations}/{stats.expectedObservations || '—'}
+            {stats.observations}/{stats.expectedObservations || '-'}
           </Text>
         </View>
         <View style={styles.bar}>
@@ -160,6 +171,26 @@ export default function ExperimentDashboard() {
         icon={<Ionicons name="scan" size={22} color={Colors.white} />}
       />
 
+      <Card style={{ gap: 10 }} onPress={() => router.push({ pathname: '/experiment/[id]/quality', params: { id } } as Href)}>
+        <View style={styles.progressHeader}>
+          <Text style={styles.progressTitle}>Pendências e qualidade</Text>
+          <Ionicons name="chevron-forward" size={18} color={Colors.textSecondary} />
+        </View>
+        <View style={styles.statsRow}>
+          <Stat label={current ? `Pendentes ${current.code}` : 'Sem coleta'} value={current?.pending.length ?? quality.neverObserved.length} warn={(current?.pending.length ?? 0) > 0} />
+          <Stat label="Sinalizados" value={quality.flagged.length} warn={quality.flagged.length > 0} />
+          <Stat label="Atípicos" value={quality.outliers.length} />
+          <Stat label="Em branco" value={quality.missing.length} />
+        </View>
+        {current && current.pending.length > 0 ? (
+          <Text style={styles.meta} numberOfLines={2}>
+            Faltam em {current.code}: {current.pending.slice(0, 8).map((p) => p.code).join(', ')}
+            {current.pending.length > 8 ? ` e mais ${current.pending.length - 8}` : ''}
+          </Text>
+        ) : null}
+        {drafts > 0 ? <Text style={styles.warn}>Há uma coleta não salva. Abra a coleta para recuperá-la.</Text> : null}
+      </Card>
+
       <View style={styles.grid}>
         {actions.map((action) => (
           <TouchableOpacity key={action.label} style={styles.tile} onPress={() => router.push(action.href)}>
@@ -173,10 +204,10 @@ export default function ExperimentDashboard() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
+function Stat({ label, value, warn }: { label: string; value: number; warn?: boolean }) {
   return (
     <View style={styles.stat}>
-      <Text style={styles.statValue}>{value}</Text>
+      <Text style={[styles.statValue, warn && { color: Colors.warning }]}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
     </View>
   );
@@ -190,6 +221,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   title: { fontSize: 22, fontWeight: '800', color: Colors.text },
   meta: { fontSize: 13, color: Colors.textSecondary },
+  warn: { fontSize: 13, color: Colors.warning, fontWeight: '600' },
   progressCard: { gap: 10 },
   progressHeader: { flexDirection: 'row', justifyContent: 'space-between' },
   progressTitle: { fontSize: 15, fontWeight: '700', color: Colors.text },
@@ -199,7 +231,7 @@ const styles = StyleSheet.create({
   statsRow: { flexDirection: 'row', justifyContent: 'space-between' },
   stat: { alignItems: 'center', flex: 1 },
   statValue: { fontSize: 18, fontWeight: '800', color: Colors.text },
-  statLabel: { fontSize: 11, color: Colors.textSecondary },
+  statLabel: { fontSize: 11, color: Colors.textSecondary, textAlign: 'center' },
   sessionCard: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.primarySurface, borderColor: Colors.primaryLight },
   sessionText: { fontSize: 14, color: Colors.primaryDark, fontWeight: '600', flex: 1 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },

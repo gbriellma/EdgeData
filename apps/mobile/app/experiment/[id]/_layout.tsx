@@ -17,6 +17,9 @@ export default function ExperimentLayout() {
       <Stack.Screen name="observations/[observationId]" options={{ title: 'Observação' }} />
       <Stack.Screen name="qr-codes" options={{ title: 'Etiquetas QR' }} />
       <Stack.Screen name="sensors" options={{ title: 'Sensores' }} />
+      <Stack.Screen name="analysis" options={{ title: 'Análise' }} />
+      <Stack.Screen name="quality" options={{ title: 'Pendências e qualidade' }} />
+      <Stack.Screen name="import" options={{ title: 'Importar planilha' }} />
       <Stack.Screen name="export" options={{ title: 'Exportar dataset' }} />
     </Stack>
   );
