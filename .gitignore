@@ -1,0 +1,49 @@
+# ── Dependências ──────────────────────────────
+node_modules/
+
+# ── Expo / React Native ───────────────────────
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+apps/mobile/ios/
+apps/mobile/android/
+.metro-health-check*
+*.tsbuildinfo
+
+# ── Firmware (PlatformIO / Arduino) ───────────
+.pio/
+.pioenvs/
+.piolibdeps/
+firmware/**/build/
+
+# ── Segredos e chaves ─────────────────────────
+.env
+.env*.local
+*.jks
+*.p8
+*.p12
+*.key
+*.pem
+*.mobileprovision
+
+# ── Artefatos de build ────────────────────────
+*.apk
+*.aab
+coverage/
+
+# ── Logs ──────────────────────────────────────
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+*.log
+
+# ── IDE / SO ──────────────────────────────────
+.idea/
+.vs/
+*.code-workspace
+.DS_Store
+Thumbs.db
+
+# ── Código de terceiros mantido fora do repositório ──
+sensor-firmware/
