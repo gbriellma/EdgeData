@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, AppState, FlatList, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { EventModal } from '@/components/collection/EventModal';
@@ -21,6 +21,7 @@ import { getDb } from '@/database/connection';
 import { uuid } from '@/database/db';
 import type { Experiment, Protocol, Sample, SensorBinding, Session } from '@/database/models';
 import { listBindings, listDevices } from '@/database/repo/devices';
+import { clearDraft, getDraft, saveDraft } from '@/database/repo/drafts';
 import { getExperiment, getProtocol } from '@/database/repo/experiments';
 import { createObservation, ObservationValidationError } from '@/database/repo/observations';
 import { findSampleByCode, getSample, listSamples } from '@/database/repo/samples';
@@ -79,7 +80,101 @@ export default function CollectScreen() {
       setObserved(await observedSampleIds(db, open.id));
     }
     setLoading(false);
+    if (open) void offerDraft(open);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  // ── Rascunho: o formulário em preenchimento sobrevive a fechar o app ─────────
+
+  const draftRef = useRef<{ sample: Sample | null; values: ValueMap; readingIds: Record<string, string>; active: boolean }>({
+    sample: null,
+    values: {},
+    readingIds: {},
+    active: false,
+  });
+  useEffect(() => {
+    draftRef.current = { sample, values, readingIds, active: step === 'form' && sample !== null };
+  }, [sample, values, readingIds, step]);
+
+  const flushDraft = useCallback(async () => {
+    const current = draftRef.current;
+    if (!current.active || !current.sample || !session) return;
+    await saveDraft(await getDb(), {
+      experimentId: id,
+      sessionId: session.id,
+      sampleId: current.sample.id,
+      data: current.values,
+      extra: { readingIds: current.readingIds },
+    }).catch(() => undefined);
+  }, [id, session]);
+
+  useEffect(() => {
+    if (step !== 'form' || !sample) return;
+    const timer = setTimeout(() => void flushDraft(), 600);
+    return () => clearTimeout(timer);
+  }, [values, readingIds, sample, step, flushDraft]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') void flushDraft();
+    });
+    return () => {
+      sub.remove();
+      void flushDraft();
+    };
+  }, [flushDraft]);
+
+  const offerDraft = async (open: Session) => {
+    const db = await getDb();
+    const draft = await getDraft(db, id);
+    if (!draft?.sampleId) return;
+    const draftSample = await getSample(db, draft.sampleId);
+    if (!draftSample || draftSample.archived) {
+      await clearDraft(db, id);
+      return;
+    }
+    const otherSession = draft.sessionId !== open.id;
+    Alert.alert(
+      'Coleta não salva',
+      `Há um preenchimento de ${draftSample.code} de ${formatRelative(draft.updatedAt)} que não foi salvo${otherSession ? ' (de outra sessão; será salvo nesta)' : ''}. Recuperar?`,
+      [
+        {
+          text: 'Descartar',
+          style: 'destructive',
+          onPress: () => void clearDraft(db, id),
+        },
+        {
+          text: 'Recuperar',
+          onPress: () => {
+            setSample(draftSample);
+            setValues(draft.data);
+            setReadingIds((draft.extra.readingIds as Record<string, string> | undefined) ?? {});
+            setErrors([]);
+            setStep('form');
+          },
+        },
+      ],
+    );
+  };
+
+  const leaveForm = () => {
+    const filled = Object.entries(values).some(([key, value]) => {
+      const initial = initialValues(observationVars)[key];
+      return value !== undefined && value !== '' && JSON.stringify(value) !== JSON.stringify(initial);
+    });
+    const discard = async () => {
+      await clearDraft(await getDb(), id);
+      setSample(null);
+      setValues({});
+      setReadingIds({});
+      setStep('identify');
+    };
+    if (!filled) return void discard();
+    Alert.alert('Descartar preenchimento?', `Os dados de ${sample?.code} ainda não foram salvos.`, [
+      { text: 'Continuar preenchendo', style: 'cancel' },
+      { text: 'Descartar', style: 'destructive', onPress: () => void discard() },
+    ]);
+  };
 
   useEffect(() => {
     void load();
@@ -257,6 +352,8 @@ export default function CollectScreen() {
         currentActor(),
       );
       setObserved((o) => new Set(o).add(sample.id));
+      draftRef.current.active = false;
+      await clearDraft(await getDb(), id);
       await remindBackup();
       setSample(null);
       setValues({});
@@ -453,7 +550,7 @@ export default function CollectScreen() {
             />
           </KeyboardAwareScrollView>
           <View style={styles.footer}>
-            <Button title="Voltar" variant="outline" onPress={() => setStep('identify')} style={{ flex: 1 }} />
+            <Button title="Voltar" variant="outline" onPress={leaveForm} style={{ flex: 1 }} />
             <Button title="Salvar" variant="secondary" onPress={() => save(false)} loading={saving} disabled={saving} style={{ flex: 1 }} />
             <Button title="Salvar + próxima" onPress={() => save(true)} disabled={saving} style={{ flex: 1.4 }} />
           </View>
