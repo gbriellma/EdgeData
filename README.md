@@ -1,10 +1,10 @@
 # EdgeData
 
 **Do sensor ao dataset.** Aplicativo para planejar experimentos, coletar dados em campo e
-laboratório — à mão ou a partir de sistemas embarcados (ESP32) — e transformar essas
+laboratório - à mão ou a partir de sistemas embarcados (ESP32) - e transformar essas
 observações em datasets científicos rastreáveis, versionados e reprodutíveis.
 
-> Status: em desenvolvimento — fase **MVP** (veja o [roadmap](docs/ROADMAP.md)).
+> Status: em desenvolvimento - fase **MVP** (veja o [roadmap](docs/ROADMAP.md)).
 
 ## O que já faz
 
@@ -16,7 +16,12 @@ observações em datasets científicos rastreáveis, versionados e reprodutívei
 - **Etiquetas QR** por amostra e coleta em modo campo (“Salvar + próxima”), offline.
 - **Sessões de coleta** com operador, fuso, versão do protocolo, eventos e dispositivos.
 - **Dados brutos imutáveis**: correções viram revisões com motivo; trilha de auditoria.
-- **QC** automático (ausente, fora da faixa) no momento da coleta.
+- **QC** automático (ausente, fora da faixa) no momento da coleta, painel de pendências e
+  qualidade, revisão humana de valores sinalizados e QC das séries de sensores.
+- **Rascunho automático** da coleta: nada se perde se o app fechar no meio do formulário.
+- **Análise** por variável: evolução no tempo, boxplot por tratamento, estatística descritiva e ANOVA.
+- **Calibração de sensores** com curva, RMSE e validade; valor bruto e corrigido lado a lado.
+- **Importação de planilhas** (.xlsx, CSV) com mapeamento de colunas, unidades e datas.
 - **ESP32 por Bluetooth LE**: manifesto do dispositivo, leituras ao vivo, vínculo sensor →
   variável com conversão de unidade e gravação das leituras brutas na sessão.
 - **Exportação** em CSV, JSONL e Parquet com README, `datapackage.json` (Frictionless),

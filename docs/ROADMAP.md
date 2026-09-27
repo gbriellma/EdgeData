@@ -39,12 +39,18 @@ original e exporta um pacote com CSV, JSONL e Parquet, README, dicionário de da
 
 ## V1 científica
 
+Já entregue na branch `development`: rascunho automático da coleta, painel de pendências e
+qualidade (inclui QC das séries de sensores), revisão humana de valores sinalizados, calibração
+de sensores (pontos, ajuste, RMSE, validade, revogação; bruto e corrigido lado a lado),
+estatística exploratória com gráficos e ANOVA, diferenças entre versões do protocolo, revisão
+antes de exportar e importação de planilhas (.xlsx/CSV) com mapeamento de colunas, unidades e datas.
+
 | Entrega | Ideias |
 |---|---|
 | Motor de QC completo: lacunas temporais, relógio voltando, perda de pacotes, saturação de ADC, sensor congelado, valores fisicamente improváveis, duplicatas, deriva, unidade incompatível, taxa inconsistente | 15, 16 |
 | Calibração e metrologia: equipamento de referência, pontos, regressão, RMSE, incerteza, validade, certificado; aplicação da curva em dados derivados | 17, 18 |
 | Incerteza por variável (valor ± incerteza, resolução, exatidão) propagada para a exportação | 18 |
-| Datasets derivados e pipeline de processamento registrado (algoritmo, versão, parâmetros, hash de entrada/saída) — nunca sobre o bruto | 12, 14 |
+| Datasets derivados e pipeline de processamento registrado (algoritmo, versão, parâmetros, hash de entrada/saída) - nunca sobre o bruto | 12, 14 |
 | Releases congeladas com semver e diff entre versões (+42 amostras, −3 inválidas…) | 31, 32 |
 | Proveniência W3C PROV completa | 13 |
 | Protocolos versionados com diff e comparação entre versões | 28 |
@@ -98,5 +104,5 @@ original e exporta um pacote com CSV, JSONL e Parquet, README, dicionário de da
 | Relações entre datasets (IsDerivedFrom, IsSupplementTo) | 67 |
 | Data Explorer visual, busca semântica | 48, 66 |
 | Integração Python (`pip install edgedata`), Jupyter, MATLAB, R | 50, 51, 52 |
-| IA como assistente (sempre “sugerido por IA — requer confirmação”) | 65 |
+| IA como assistente (sempre “sugerido por IA - requer confirmação”) | 65 |
 | App web | 79 |
