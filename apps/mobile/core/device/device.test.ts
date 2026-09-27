@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ManifestError, parseManifest } from './manifest';
 import { chunkUtf8, encodeCommand, LineAssembler, parseDeviceLine, SequenceTracker, utf8Length } from './protocol';
@@ -41,7 +41,8 @@ describe('manifesto', () => {
   });
 
   it('está alinhado ao JSON Schema publicado', () => {
-    const schemaPath = fileURLToPath(new URL('../../../../schemas/device-manifest.schema.json', import.meta.url));
+    // os testes rodam a partir de apps/mobile
+    const schemaPath = resolve(process.cwd(), '../../schemas/device-manifest.schema.json');
     const schema = JSON.parse(readFileSync(schemaPath, 'utf8'));
     expect(schema.properties.schema.const).toBe('edgedata.device-manifest/1');
     expect(schema.required).toEqual(['schema', 'id', 'name', 'sensors']);
