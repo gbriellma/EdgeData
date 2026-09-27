@@ -3,7 +3,7 @@ import Constants from 'expo-constants';
 import * as DocumentPicker from 'expo-document-picker';
 import { useRouter } from 'expo-router';
 import * as Sharing from 'expo-sharing';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Alert, StyleSheet, Text, TextInput, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { Button } from '@/components/ui/Button';
@@ -13,8 +13,10 @@ import { Colors } from '@/constants/colors';
 import { normalizeOrcid } from '@/core/codes';
 import { createBackup, restoreBackup } from '@/database/backup';
 import { getDb } from '@/database/connection';
+import { createDemoExperiment } from '@/database/demo';
 import { LATEST_SCHEMA_VERSION } from '@/database/migrations';
-import { useSettings, type UiMode } from '@/stores/settings';
+import { findLegacyDatabases, importLegacyDatabase, type LegacyDatabase } from '@/lib/legacy';
+import { currentActor, useSettings, type UiMode } from '@/stores/settings';
 import { formatDateTime } from '@/utils/formatters';
 
 export default function SettingsScreen() {
@@ -23,7 +25,52 @@ export default function SettingsScreen() {
   const [name, setName] = useState(settings.operatorName);
   const [orcid, setOrcid] = useState(settings.operatorOrcid);
   const [autoBackup, setAutoBackup] = useState(String(settings.autoBackupEvery));
-  const [busy, setBusy] = useState<null | 'backup' | 'restore'>(null);
+  const [busy, setBusy] = useState<null | 'backup' | 'restore' | 'demo' | 'legacy'>(null);
+  const [legacy, setLegacy] = useState<LegacyDatabase[]>([]);
+
+  useEffect(() => {
+    findLegacyDatabases().then(setLegacy).catch(() => setLegacy([]));
+  }, []);
+
+  const openDemo = async () => {
+    setBusy('demo');
+    try {
+      const id = await createDemoExperiment(await getDb(), currentActor());
+      router.push({ pathname: '/experiment/[id]', params: { id } });
+    } catch (err) {
+      Alert.alert('Erro', err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const importLegacy = (db: LegacyDatabase) => {
+    Alert.alert(
+      'Importar dados da versão anterior',
+      `${db.projects} projeto(s), ${db.subjects} sujeito(s) e ${db.collections} coleta(s) serão convertidos em experimentos, amostras e observações. O banco antigo não é alterado.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Importar',
+          onPress: async () => {
+            setBusy('legacy');
+            try {
+              const result = await importLegacyDatabase(db.fileName, currentActor());
+              Alert.alert(
+                'Importação concluída',
+                `${result.experiments} experimento(s), ${result.samples} amostra(s) e ${result.observations} observação(ões) importados.` +
+                  (result.skippedProjects ? ` ${result.skippedProjects} projeto(s) já tinham sido importados.` : ''),
+              );
+            } catch (err) {
+              Alert.alert('Erro na importação', err instanceof Error ? err.message : String(err));
+            } finally {
+              setBusy(null);
+            }
+          },
+        },
+      ],
+    );
+  };
 
   const orcidValid = !orcid.trim() || !!normalizeOrcid(orcid);
 
@@ -132,6 +179,28 @@ export default function SettingsScreen() {
           onEndEditing={() => settings.update({ autoBackupEvery: Math.max(0, parseInt(autoBackup, 10) || 0) })}
         />
       </Card>
+
+      <Card style={styles.card}>
+        <Text style={styles.title}>Demonstração</Text>
+        <Text style={styles.text}>Um experimento fictício com dados sintéticos para conhecer sessões, revisões, retratações e a exportação.</Text>
+        <Button title="Abrir experimento de demonstração" variant="outline" onPress={openDemo} loading={busy === 'demo'} disabled={busy !== null} />
+      </Card>
+
+      {legacy.length > 0 ? (
+        <Card style={styles.card}>
+          <Text style={styles.title}>Dados da versão anterior</Text>
+          <Text style={styles.text}>Encontramos dados do aplicativo anterior neste aparelho. Etiquetas QR já impressas continuam funcionando após a importação.</Text>
+          {legacy.map((db) => (
+            <Button
+              key={db.fileName}
+              title={`Importar ${db.projects} projeto(s) · ${db.collections} coleta(s)`}
+              onPress={() => importLegacy(db)}
+              loading={busy === 'legacy'}
+              disabled={busy !== null}
+            />
+          ))}
+        </Card>
+      ) : null}
 
       <Text style={styles.footer}>
         EdgeData {Constants.expoConfig?.version ?? ''} · banco v{LATEST_SCHEMA_VERSION}
