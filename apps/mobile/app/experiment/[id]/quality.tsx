@@ -8,6 +8,7 @@ import { ReasonModal } from '@/components/ui/ReasonModal';
 import { Section } from '@/components/ui/Section';
 import { Colors } from '@/constants/colors';
 import type { ValueIssue } from '@/core/quality';
+import { streamProblems } from '@/core/readings-qc';
 import { getDb } from '@/database/connection';
 import { loadQualityReport } from '@/database/quality-report';
 import { acceptFlaggedValue } from '@/database/repo/quality';
@@ -15,7 +16,7 @@ import { useAsync } from '@/hooks/useAsync';
 import { formatValue } from '@/lib/format-value';
 import { currentActor } from '@/stores/settings';
 
-type Tab = 'pending' | 'flagged' | 'outliers' | 'missing';
+type Tab = 'pending' | 'flagged' | 'outliers' | 'missing' | 'sensors';
 
 export default function QualityScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -33,7 +34,8 @@ export default function QualityScreen() {
       </View>
     );
   }
-  const { report, variables } = data;
+  const { report, variables, streams, deviceNames, sessionCodes } = data;
+  const troubled = streams.filter((s) => streamProblems(s).length > 0);
   const byKey = new Map(variables.map((v) => [v.key, v]));
   const latest = report.pendingBySession[0];
 
@@ -58,6 +60,9 @@ export default function QualityScreen() {
     { key: 'flagged', label: 'Sinalizados', value: report.flagged.length, tone: report.flagged.length > 0 ? 'warn' : 'ok' },
     { key: 'outliers', label: 'Atípicos', value: report.outliers.length, tone: report.outliers.length > 0 ? 'info' : 'ok' },
     { key: 'missing', label: 'Campos em branco', value: report.missing.length, tone: report.missing.length > 0 ? 'info' : 'ok' },
+    ...(streams.length > 0
+      ? [{ key: 'sensors' as const, label: 'Séries de sensores com alerta', value: troubled.length, tone: troubled.length > 0 ? ('warn' as const) : ('ok' as const) }]
+      : []),
   ];
 
   const issueRow = (issue: ValueIssue, canAccept: boolean) => {
@@ -189,6 +194,33 @@ export default function QualityScreen() {
         </Section>
       ) : null}
 
+      {tab === 'sensors' ? (
+        <Section title="Séries de sensores" hint="Por sensor e sessão: lacunas de tempo, valores repetidos, reinícios, pacotes perdidos e saturação.">
+          {streams.map((st) => {
+            const problems = streamProblems(st);
+            return (
+              <Card key={`${st.deviceId}-${st.sensorId}-${st.sessionId}`} style={{ gap: 4 }}>
+                <View style={styles.sessionRow}>
+                  <Text style={[styles.issueTitle, { flex: 1 }]}>
+                    {deviceNames.get(st.deviceId) ?? st.deviceId} · {st.sensorId}
+                  </Text>
+                  <Ionicons name={problems.length ? 'warning' : 'checkmark-circle'} size={18} color={problems.length ? Colors.warning : Colors.primary} />
+                </View>
+                <Text style={styles.meta}>
+                  Sessão {sessionCodes.get(st.sessionId) ?? '?'} · {st.count} leitura(s)
+                  {st.medianIntervalMs ? ` · intervalo típico ${(st.medianIntervalMs / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} s` : ''}
+                </Text>
+                {problems.map((p) => (
+                  <Text key={p} style={styles.problem}>
+                    - {p}
+                  </Text>
+                ))}
+              </Card>
+            );
+          })}
+        </Section>
+      ) : null}
+
       <ReasonModal
         visible={accepting !== null}
         title="Valor conferido"
@@ -222,4 +254,5 @@ const styles = StyleSheet.create({
   issueActions: { flexDirection: 'row', gap: 16 },
   action: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   actionText: { fontSize: 13, fontWeight: '600', color: Colors.primary },
+  problem: { fontSize: 13, color: Colors.text },
 });
