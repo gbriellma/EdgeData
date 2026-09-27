@@ -172,11 +172,22 @@ export default function ObservationDetailScreen() {
               </View>
             );
           }
+          const accepted = audit.find(
+            (a) => a.entityId === current.id && a.action === 'qc_accept' && (a.details as { variable?: string } | null)?.variable === v.key,
+          );
           return (
-            <View key={v.key} style={styles.valueRow}>
-              <Text style={styles.valueLabel}>{v.label}</Text>
-              <Text style={styles.value}>{formatValue(v, value)}</Text>
-              {flag && flag !== 'GOOD' ? <QcBadge flag={flag} /> : null}
+            <View key={v.key} style={{ gap: 2 }}>
+              <View style={styles.valueRow}>
+                <Text style={styles.valueLabel}>{v.label}</Text>
+                <Text style={styles.value}>{formatValue(v, value)}</Text>
+                {flag && flag !== 'GOOD' ? <QcBadge flag={flag} /> : null}
+              </View>
+              {accepted ? (
+                <Text style={styles.accepted}>
+                  Conferido por {accepted.actor} em {formatDateTime(accepted.at)}
+                  {(accepted.details as { note?: string } | null)?.note ? `: ${(accepted.details as { note?: string }).note}` : ''}
+                </Text>
+              ) : null}
             </View>
           );
         })}
@@ -236,6 +247,7 @@ export default function ObservationDetailScreen() {
 }
 
 const styles = StyleSheet.create({
+  accepted: { fontSize: 12, color: Colors.primary, textAlign: 'right' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   content: { padding: 16, gap: 12, paddingBottom: 48 },
   title: { fontSize: 22, fontWeight: '800', color: Colors.text },
