@@ -46,7 +46,7 @@ let rawDatabase: SQLite.SQLiteDatabase | null = null;
 
 async function open(): Promise<Db> {
   const database = await SQLite.openDatabaseAsync(DB_NAME);
-  await database.execAsync('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
+  await database.execAsync('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
   rawDatabase = database;
   const db = adapt(database);
   await migrate(db);
@@ -65,6 +65,30 @@ export function getDb(): Promise<Db> {
   return dbPromise;
 }
 
+let devicePromise: Promise<Db> | null = null;
+let rawDeviceDatabase: SQLite.SQLiteDatabase | null = null;
+
+/**
+ * Segunda conexão, usada só pela gravação de leituras dos dispositivos. Assim o
+ * fluxo contínuo de um sensor nunca se mistura com a transação de uma ação do
+ * usuário (salvar observação, revisar etc.); o SQLite serializa as escritas.
+ */
+export function getDeviceDb(): Promise<Db> {
+  if (!devicePromise) {
+    devicePromise = (async () => {
+      await getDb(); // garante o banco migrado
+      const database = await SQLite.openDatabaseAsync(DB_NAME);
+      await database.execAsync('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
+      rawDeviceDatabase = database;
+      return adapt(database);
+    })().catch((error) => {
+      devicePromise = null;
+      throw error;
+    });
+  }
+  return devicePromise;
+}
+
 /** Grava o WAL no arquivo principal (antes de copiar o banco num backup). */
 export async function checkpoint(): Promise<void> {
   await getDb();
@@ -73,6 +97,16 @@ export async function checkpoint(): Promise<void> {
 
 /** Fecha a conexão (usado ao restaurar backup). */
 export async function closeDb(): Promise<void> {
+  if (devicePromise) {
+    try {
+      await devicePromise;
+      await rawDeviceDatabase?.closeAsync();
+    } catch {
+      // conexão já estava inválida
+    }
+    rawDeviceDatabase = null;
+    devicePromise = null;
+  }
   if (!dbPromise) return;
   try {
     await dbPromise;

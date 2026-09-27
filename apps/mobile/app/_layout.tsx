@@ -56,6 +56,7 @@ export default function RootLayout() {
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="experiment/new" options={{ title: 'Novo experimento', presentation: 'modal' }} />
           <Stack.Screen name="experiment/[id]" options={{ headerShown: false }} />
+          <Stack.Screen name="device/[deviceId]" options={{ title: 'Dispositivo' }} />
           <Stack.Screen name="tutorial" options={{ title: 'Como usar o EdgeData', presentation: 'modal' }} />
         </Stack>
         <StatusBar style="dark" />

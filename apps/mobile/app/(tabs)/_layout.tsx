@@ -11,6 +11,10 @@ export default function TabLayout() {
         options={{ title: 'Experimentos', tabBarIcon: ({ color, size }) => <Ionicons name="flask-outline" size={size} color={color} /> }}
       />
       <Tabs.Screen
+        name="devices"
+        options={{ title: 'Dispositivos', tabBarIcon: ({ color, size }) => <Ionicons name="bluetooth-outline" size={size} color={color} /> }}
+      />
+      <Tabs.Screen
         name="settings"
         options={{ title: 'Ajustes', tabBarIcon: ({ color, size }) => <Ionicons name="settings-outline" size={size} color={color} /> }}
       />

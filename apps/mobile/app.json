@@ -66,6 +66,15 @@
           "photosPermission": "O EdgeData precisa acessar a galeria para selecionar fotos.",
           "cameraPermission": "O EdgeData precisa acessar a camera para capturar fotos dos registros."
         }
+      ],
+      [
+        "react-native-ble-plx",
+        {
+          "isBackgroundEnabled": false,
+          "modes": [],
+          "neverForLocation": true,
+          "bluetoothAlwaysPermission": "O EdgeData usa Bluetooth para ler sensores de dispositivos de aquisição (ESP32)."
+        }
       ]
     ],
     "experiments": {
