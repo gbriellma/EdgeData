@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="leaf" x1="260" y1="780" x2="760" y2="260" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#34A457"/><stop offset="1" stop-color="#8BE06A"/>
+    </linearGradient>
+    <linearGradient id="bg" x1="0" y1="0" x2="1024" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1E6A3A"/><stop offset="1" stop-color="#0E3A22"/>
+    </linearGradient>
+  </defs><rect width="1024" height="1024" fill="url(#bg)"/><g transform="translate(512 512) scale(1.02) translate(-512 -512)"><line x1="300" y1="724" x2="240.6" y2="783.4" stroke="url(#leaf)" stroke-width="45" stroke-linecap="round"/><path d="M 300.0 724.0 C 512.8 885.9 706.4 621.6 724.0 300.0 C 402.4 317.6 138.1 511.2 300.0 724.0 Z" fill="url(#leaf)"/>
+    <path d="M 329.7 694.3 L 427.2 596.8 L 530.4 598.2 L 495.0 444.1 L 579.8 444.2 L 630.7 393.3" fill="none" stroke="#fff" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="530.4" cy="598.2" r="34.199999999999996" fill="#fff"/><circle cx="495.0" cy="444.1" r="34.199999999999996" fill="#fff"/><circle cx="630.7" cy="393.3" r="37.800000000000004" fill="#fff"/></g></svg>

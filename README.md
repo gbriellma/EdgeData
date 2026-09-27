@@ -35,6 +35,7 @@ EdgeData/
 ├── firmware/             # Biblioteca Arduino/PlatformIO para ESP32 e exemplos
 ├── schemas/              # JSON Schemas públicos (manifesto de dispositivo)
 ├── docs/                 # Análise, requisitos, arquitetura, protocolo, roadmap e guia de uso
+├── design/brand/         # Símbolo, ícones, splash e artes da loja (gerados por script)
 └── scripts/              # Build do APK
 ```
 

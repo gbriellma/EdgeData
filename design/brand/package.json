@@ -1,0 +1,13 @@
+{
+  "name": "edgedata-brand",
+  "private": true,
+  "type": "module",
+  "description": "Gera ícones, splash e artes da loja do EdgeData",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "devDependencies": {
+    "@fontsource/inter": "^5.2.8",
+    "playwright": "1.56.0"
+  }
+}
