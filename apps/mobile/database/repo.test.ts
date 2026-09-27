@@ -202,3 +202,15 @@ describe('consultas auxiliares', () => {
     expect([...(await sessionsPerProtocol(db, experimentId)).values()]).toEqual([1]);
   });
 });
+
+describe('contagens de sessão', () => {
+  it('conta observações vigentes, eventos e amostras observadas', async () => {
+    const { experimentId, session, sample } = await setup(db);
+    const { sessionCounts, observedSampleIds } = await import('./repo/sessions');
+    const obs = await createObservation(db, { sessionId: session.id, sampleId: sample.id, data: { ha_doenca: false } }, ACTOR);
+    await reviseObservation(db, obs.id, { data: { ha_doenca: true, doenca: 'Oídio', severidade: 1 }, reason: 'reavaliada' }, ACTOR);
+    await recordEvent(db, { experimentId, sessionId: session.id, label: 'Irrigação' }, ACTOR);
+    expect((await sessionCounts(db, experimentId)).get(session.id)).toEqual({ observations: 1, events: 1, readings: 0 });
+    expect([...(await observedSampleIds(db, session.id))]).toEqual([sample.id]);
+  });
+});

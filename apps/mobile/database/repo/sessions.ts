@@ -176,3 +176,30 @@ export async function retractEvent(db: Db, id: string, reason: string, actor: st
     await recordAudit(db, { actor, entity: 'event', entityId: id, action: 'retract', details: { reason } });
   });
 }
+
+export interface SessionCounts {
+  observations: number;
+  events: number;
+  readings: number;
+}
+
+export async function sessionCounts(db: Db, experimentId: string): Promise<Map<string, SessionCounts>> {
+  const rows = await db.all<{ id: string; observations: number; events: number; readings: number }>(
+    `SELECT s.id,
+       (SELECT COUNT(*) FROM observations o WHERE o.session_id = s.id AND o.superseded_by IS NULL AND o.retracted_at IS NULL) AS observations,
+       (SELECT COUNT(*) FROM events e WHERE e.session_id = s.id AND e.retracted_at IS NULL) AS events,
+       (SELECT COUNT(*) FROM readings r WHERE r.session_id = s.id) AS readings
+     FROM sessions s WHERE s.experiment_id = ?`,
+    [experimentId],
+  );
+  return new Map(rows.map((r) => [r.id, { observations: r.observations, events: r.events, readings: r.readings }]));
+}
+
+/** Amostras já observadas (versão vigente) numa sessão. */
+export async function observedSampleIds(db: Db, sessionId: string): Promise<Set<string>> {
+  const rows = await db.all<{ sample_id: string }>(
+    'SELECT DISTINCT sample_id FROM observations WHERE session_id = ? AND superseded_by IS NULL AND retracted_at IS NULL',
+    [sessionId],
+  );
+  return new Set(rows.map((r) => r.sample_id));
+}
