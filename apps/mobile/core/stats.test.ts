@@ -58,3 +58,17 @@ describe('séries temporais', () => {
     ]);
   });
 });
+
+describe('eixos', async () => {
+  const { niceTicks, formatAxisNumber } = await import('./chart-scale');
+  it('gera marcas redondas', () => {
+    expect(niceTicks(0.3, 9.7, 5)).toEqual([0, 2, 4, 6, 8, 10]);
+    expect(niceTicks(12, 88, 4)).toEqual([0, 20, 40, 60, 80, 100]);
+    expect(niceTicks(5, 5)).toEqual([4.4, 4.6, 4.8, 5, 5.2, 5.4, 5.6]);
+  });
+  it('formata números do eixo', () => {
+    expect(formatAxisNumber(1284)).toBe('1.284');
+    expect(formatAxisNumber(12900)).toBe('12,9 mil');
+    expect(formatAxisNumber(0.125)).toBe('0,125');
+  });
+});
