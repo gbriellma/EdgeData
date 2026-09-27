@@ -26,7 +26,7 @@ export function encodeCommand(command: DeviceCommand, id: string): string {
 
 // ── Mensagens (dispositivo → app) ────────────────────────────────────────────
 
-export interface HelloMessage { t: 'hello'; proto: number; manifest: unknown }
+export interface HelloMessage { t: 'hello'; proto: number; manifest: unknown; id?: string }
 export interface ObsMessage { t: 'obs'; seq?: number; ms?: number; utc_ms?: number; values: Record<string, number | string | boolean | null> }
 export interface BlockMessage { t: 'blk'; seq?: number; sensor: string; ms?: number; fs: number; v: number[] }
 export interface StatusMessage { t: 'status'; ms?: number; battery_pct?: number; rssi?: number; streaming?: boolean; interval_ms?: number; [k: string]: unknown }
@@ -63,7 +63,10 @@ export function parseDeviceLine(line: string): ParseResult {
   switch (data.t) {
     case 'hello':
       if (!isObject(data.manifest)) return { ok: false, error: 'hello sem manifesto', line };
-      return { ok: true, message: { t: 'hello', proto: Number(data.proto ?? 1), manifest: data.manifest } };
+      return {
+        ok: true,
+        message: { t: 'hello', proto: Number(data.proto ?? 1), manifest: data.manifest, ...(typeof data.id === 'string' ? { id: data.id } : {}) },
+      };
     case 'obs':
       if (!isObject(data.values)) return { ok: false, error: 'obs sem values', line };
       return { ok: true, message: data as unknown as ObsMessage };

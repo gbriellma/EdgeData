@@ -87,3 +87,17 @@ describe('protocolo NDJSON', () => {
     expect(tracker.lost).toBe(2);
   });
 });
+
+describe('UTF-8 em pacotes', () => {
+  it('codifica igual ao TextEncoder e remonta caracteres cortados', async () => {
+    const { utf8Encode, Utf8StreamDecoder, textToBase64 } = await import('./utf8');
+    const text = '{"label":"Temperatura °C — ação 🌱"}\n';
+    expect([...utf8Encode(text)]).toEqual([...new TextEncoder().encode(text)]);
+    const bytes = utf8Encode(text);
+    const decoder = new Utf8StreamDecoder();
+    let out = '';
+    for (let i = 0; i < bytes.length; i += 5) out += decoder.decode(bytes.slice(i, i + 5));
+    expect(out).toBe(text);
+    expect(textToBase64('ok\n')).toBe(Buffer.from('ok\n').toString('base64'));
+  });
+});
