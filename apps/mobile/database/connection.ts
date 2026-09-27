@@ -8,7 +8,7 @@ export const DB_NAME = 'edgedata.db';
 
 setUuidGenerator(() => Crypto.randomUUID());
 
-function adapt(database: SQLite.SQLiteDatabase): Db {
+export function adapt(database: SQLite.SQLiteDatabase): Db {
   let depth = 0;
   return {
     async exec(sql) {

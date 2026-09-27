@@ -41,6 +41,11 @@ interface LegacyField {
  * reconhecidas; caso contrário o texto original vai para a descrição.
  */
 export function legacySchemaToVariables(schema: unknown, scope: VariableScope): ProtocolVariable[] {
+  return legacySchemaFields(schema, scope).map((f) => f.variable);
+}
+
+/** Como `legacySchemaToVariables`, mas mantém o nome antigo de cada campo (para migrar valores). */
+export function legacySchemaFields(schema: unknown, scope: VariableScope): { legacyName: string; variable: ProtocolVariable }[] {
   const fields: LegacyField[] =
     schema && typeof schema === 'object' && Array.isArray((schema as { fields?: unknown }).fields)
       ? ((schema as { fields: LegacyField[] }).fields)
@@ -71,7 +76,7 @@ export function legacySchemaToVariables(schema: unknown, scope: VariableScope): 
       if (unit) variable.unit = unit;
       else if (rawUnit) variable.description = `Unidade informada: ${rawUnit}`;
       if (type === 'scale') variable.unit = '{score}';
-      return variable;
+      return { legacyName: String(field.name ?? label), variable };
     });
 }
 
