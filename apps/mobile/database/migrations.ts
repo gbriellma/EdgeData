@@ -370,6 +370,126 @@ export const MIGRATIONS: Migration[] = [
       END;
     `,
   },
+  {
+    version: 2,
+    description: 'Rascunhos de coleta, calibração de sensores, revisão de QC e importação de planilhas',
+    sql: `
+      -- Rascunho do formulário em preenchimento (mutável, fora do dataset)
+      CREATE TABLE drafts (
+        id TEXT PRIMARY KEY,
+        experiment_id TEXT NOT NULL REFERENCES experiments(id),
+        kind TEXT NOT NULL DEFAULT 'observation',
+        session_id TEXT REFERENCES sessions(id),
+        sample_id TEXT REFERENCES samples(id),
+        data TEXT NOT NULL DEFAULT '{}',
+        extra TEXT,
+        updated_at TEXT NOT NULL,
+        UNIQUE (experiment_id, kind)
+      );
+
+      -- Curvas de calibração: o valor bruto nunca muda, o corrigido é derivado
+      CREATE TABLE calibrations (
+        id TEXT PRIMARY KEY,
+        device_id TEXT NOT NULL REFERENCES devices(id),
+        sensor_id TEXT NOT NULL,
+        method TEXT NOT NULL CHECK (method IN ('offset', 'linear', 'quadratic')),
+        points TEXT NOT NULL,
+        coefficients TEXT NOT NULL,
+        r2 REAL,
+        rmse REAL,
+        unit TEXT,
+        reference_instrument TEXT,
+        certificate TEXT,
+        valid_from TEXT NOT NULL,
+        valid_until TEXT,
+        notes TEXT,
+        created_by TEXT,
+        created_at TEXT NOT NULL,
+        revoked_at TEXT,
+        revoked_reason TEXT
+      );
+
+      ALTER TABLE readings ADD COLUMN calibration_id TEXT REFERENCES calibrations(id);
+      ALTER TABLE readings ADD COLUMN value_corrected REAL;
+
+      -- Revisão humana de valores sinalizados pelo QC (somente inclusão)
+      CREATE TABLE qc_reviews (
+        id TEXT PRIMARY KEY,
+        experiment_id TEXT NOT NULL REFERENCES experiments(id),
+        observation_id TEXT NOT NULL REFERENCES observations(id),
+        variable_key TEXT NOT NULL,
+        flag TEXT NOT NULL,
+        decision TEXT NOT NULL CHECK (decision IN ('accepted')),
+        note TEXT,
+        created_by TEXT,
+        created_at TEXT NOT NULL
+      );
+
+      -- Importações de planilhas (proveniência do arquivo de origem)
+      CREATE TABLE imports (
+        id TEXT PRIMARY KEY,
+        experiment_id TEXT NOT NULL REFERENCES experiments(id),
+        session_id TEXT NOT NULL REFERENCES sessions(id),
+        file_name TEXT NOT NULL,
+        sha256 TEXT,
+        rows_total INTEGER NOT NULL,
+        rows_imported INTEGER NOT NULL,
+        mapping TEXT NOT NULL,
+        created_by TEXT,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE INDEX idx_calibrations_sensor ON calibrations(device_id, sensor_id, valid_from);
+      CREATE INDEX idx_qc_reviews_observation ON qc_reviews(observation_id);
+      CREATE INDEX idx_imports_experiment ON imports(experiment_id);
+
+      DROP TRIGGER readings_immutable;
+      CREATE TRIGGER readings_immutable
+      BEFORE UPDATE ON readings
+      WHEN ${changed(['id', 'session_id', 'device_id', 'sensor_id', 'value', 'value_text', 'unit', 'qc', 'seq', 'device_ms', 'device_utc', 'received_at', 'calibration_id', 'value_corrected'])}
+      BEGIN
+        SELECT RAISE(ABORT, 'Leituras de dispositivos são imutáveis');
+      END;
+
+      CREATE TRIGGER calibrations_immutable
+      BEFORE UPDATE ON calibrations
+      WHEN ${changed(['id', 'device_id', 'sensor_id', 'method', 'points', 'coefficients', 'r2', 'rmse', 'unit', 'valid_from', 'valid_until', 'created_by', 'created_at'])}
+      BEGIN
+        SELECT RAISE(ABORT, 'Calibrações são imutáveis: registre uma nova');
+      END;
+
+      CREATE TRIGGER calibrations_revoke_once
+      BEFORE UPDATE OF revoked_at ON calibrations
+      WHEN OLD.revoked_at IS NOT NULL
+      BEGIN
+        SELECT RAISE(ABORT, 'Calibração já foi revogada');
+      END;
+
+      CREATE TRIGGER calibrations_no_delete
+      BEFORE DELETE ON calibrations
+      BEGIN
+        SELECT RAISE(ABORT, 'Calibrações não podem ser apagadas: revogue');
+      END;
+
+      CREATE TRIGGER qc_reviews_no_update
+      BEFORE UPDATE ON qc_reviews
+      BEGIN
+        SELECT RAISE(ABORT, 'Revisões de QC são somente de inclusão');
+      END;
+
+      CREATE TRIGGER qc_reviews_no_delete
+      BEFORE DELETE ON qc_reviews
+      BEGIN
+        SELECT RAISE(ABORT, 'Revisões de QC são somente de inclusão');
+      END;
+
+      CREATE TRIGGER imports_no_delete
+      BEFORE DELETE ON imports
+      BEGIN
+        SELECT RAISE(ABORT, 'Registros de importação não podem ser apagados');
+      END;
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;

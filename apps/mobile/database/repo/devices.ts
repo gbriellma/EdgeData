@@ -3,6 +3,8 @@ import { readingQcFlag } from '@/core/qc';
 import type { QcFlag } from '@/core/types';
 import { nowIso, parseJson, uuid, type Db } from '../db';
 import type { DatasetRelease, Device, Reading, SensorBinding } from '../models';
+import { applyCalibration } from '@/core/calibration';
+import { findActiveCalibration } from './calibrations';
 import { recordAudit } from './common';
 
 // ── Dispositivos ─────────────────────────────────────────────────────────────
@@ -125,6 +127,8 @@ interface ReadingRow {
   device_utc: string | null;
   received_at: string;
   observation_id: string | null;
+  value_corrected: number | null;
+  calibration_id: string | null;
 }
 
 const toReading = (r: ReadingRow): Reading => ({
@@ -141,6 +145,8 @@ const toReading = (r: ReadingRow): Reading => ({
   deviceUtc: r.device_utc,
   receivedAt: r.received_at,
   observationId: r.observation_id,
+  valueCorrected: r.value_corrected ?? null,
+  calibrationId: r.calibration_id ?? null,
 });
 
 export interface IncomingReading {
@@ -152,7 +158,11 @@ export interface IncomingReading {
   receivedAt?: string;
 }
 
-/** Grava as leituras de uma mensagem `obs` do dispositivo. Devolve os IDs criados. */
+/**
+ * Grava as leituras de uma mensagem `obs` do dispositivo. Devolve os IDs criados.
+ * Se houver calibração vigente para o sensor, o valor corrigido é gravado ao lado
+ * do bruto, com a referência da calibração usada.
+ */
 export async function recordReadings(
   db: Db,
   input: { experimentId: string; sessionId: string; device: Device; readings: IncomingReading[] },
@@ -164,17 +174,24 @@ export async function recordReadings(
       const sensor = sensors.get(r.sensorId);
       const numeric = typeof r.value === 'number' ? r.value : typeof r.value === 'boolean' ? Number(r.value) : null;
       const qc = readingQcFlag(numeric ?? r.value, { range: sensor?.range });
+      const receivedAt = r.receivedAt ?? nowIso();
+      const calibration =
+        typeof r.value === 'number' && Number.isFinite(r.value) ? await findActiveCalibration(db, input.device.id, r.sensorId, receivedAt) : null;
+      const corrected = calibration && typeof r.value === 'number' ? applyCalibration(calibration.coefficients, r.value) : null;
       const id = uuid();
       await db.run(
-        `INSERT INTO readings (id, experiment_id, session_id, device_id, sensor_id, value, value_text, unit, qc, seq, device_ms, device_utc, received_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO readings (id, experiment_id, session_id, device_id, sensor_id, value, value_text, unit, qc, seq, device_ms, device_utc, received_at,
+           value_corrected, calibration_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id, input.experimentId, input.sessionId, input.device.id, r.sensorId,
           numeric !== null && Number.isFinite(numeric) ? numeric : null,
           typeof r.value === 'string' ? r.value : null,
           sensor?.unit ?? null, qc, r.seq ?? null, r.deviceMs ?? null,
           r.deviceUtcMs ? new Date(r.deviceUtcMs).toISOString() : null,
-          r.receivedAt ?? nowIso(),
+          receivedAt,
+          corrected !== null && Number.isFinite(corrected) ? corrected : null,
+          calibration?.id ?? null,
         ],
       );
       ids.push(id);

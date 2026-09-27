@@ -1,3 +1,4 @@
+import type { CalibrationMethod, CalibrationPoint } from '@/core/calibration';
 import type { DeviceManifest } from '@/core/device/manifest';
 import type {
   ExperimentalDesign,
@@ -175,6 +176,9 @@ export interface Reading {
   deviceUtc: string | null;
   receivedAt: string;
   observationId: string | null;
+  /** Valor após a curva de calibração vigente (o bruto fica em `value`) */
+  valueCorrected: number | null;
+  calibrationId: string | null;
 }
 
 export interface DatasetRelease {
@@ -198,4 +202,59 @@ export interface AuditEntry {
   entityId: string;
   action: string;
   details: unknown;
+}
+
+export interface Calibration {
+  id: string;
+  deviceId: string;
+  sensorId: string;
+  method: CalibrationMethod;
+  points: CalibrationPoint[];
+  coefficients: number[];
+  r2: number | null;
+  rmse: number | null;
+  unit: string | null;
+  referenceInstrument: string | null;
+  certificate: string | null;
+  validFrom: string;
+  validUntil: string | null;
+  notes: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  revokedAt: string | null;
+  revokedReason: string | null;
+}
+
+export interface QcReview {
+  id: string;
+  experimentId: string;
+  observationId: string;
+  variableKey: string;
+  flag: QcFlag;
+  decision: 'accepted';
+  note: string | null;
+  createdBy: string | null;
+  createdAt: string;
+}
+
+export interface Draft {
+  experimentId: string;
+  sessionId: string | null;
+  sampleId: string | null;
+  data: ValueMap;
+  extra: Record<string, unknown>;
+  updatedAt: string;
+}
+
+export interface ImportRecord {
+  id: string;
+  experimentId: string;
+  sessionId: string;
+  fileName: string;
+  sha256: string | null;
+  rowsTotal: number;
+  rowsImported: number;
+  mapping: unknown;
+  createdBy: string | null;
+  createdAt: string;
 }
