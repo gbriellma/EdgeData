@@ -13,6 +13,7 @@ import type { ProtocolVariable, VariableScope } from '@/core/types';
 import { definitionsEqual } from '@/core/variables';
 import { getDb } from '@/database/connection';
 import type { Protocol, Session } from '@/database/models';
+import { diffProtocols } from '@/core/protocol-diff';
 import { getCurrentProtocol, listProtocols, saveVariables, sessionsPerProtocol, usedVariableKeys } from '@/database/repo/experiments';
 import { getOpenSession } from '@/database/repo/sessions';
 import { currentActor, useSettings } from '@/stores/settings';
@@ -88,7 +89,7 @@ export default function ProtocolScreen() {
           <View style={{ flex: 1 }}>
             <Text style={styles.versionTitle}>Protocolo v{current.version}</Text>
             <Text style={styles.meta}>
-              {inUse ? `Usado em ${usage.get(current.id)} sessão(ões) — alterações criam a v${current.version + 1}` : 'Ainda não usado — alterações atualizam esta versão'}
+              {inUse ? `Usado em ${usage.get(current.id)} sessão(ões) - alterações criam a v${current.version + 1}` : 'Ainda não usado - alterações atualizam esta versão'}
             </Text>
           </View>
         </Card>
@@ -121,7 +122,7 @@ export default function ProtocolScreen() {
               value={note}
               onChangeText={setNote}
               multiline
-              placeholder="Ex.: incluída temperatura da folha; taxa de 8 kHz → 32 kHz"
+              placeholder="Ex.: incluída temperatura da folha; taxa de 8 kHz para 32 kHz"
               placeholderTextColor={Colors.textSecondary}
             />
           </View>
@@ -129,18 +130,29 @@ export default function ProtocolScreen() {
 
         {history.length > 1 ? (
           <Section title="Histórico de versões" style={{ marginTop: 20 }}>
-            {[...history].reverse().map((p) => (
-              <View key={p.id} style={styles.historyRow}>
-                <Text style={styles.historyVersion}>v{p.version}</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.meta}>
-                    {formatDate(p.createdAt)} · {p.variables.length} variáveis · {usage.get(p.id) ?? 0} sessão(ões)
-                    {p.createdBy ? ` · ${p.createdBy}` : ''}
-                  </Text>
-                  {p.changeNote ? <Text style={styles.note}>{p.changeNote}</Text> : null}
+            {[...history].reverse().map((p) => {
+              const previous = history.find((h) => h.version === p.version - 1);
+              const changes = previous ? diffProtocols(previous.variables, p.variables) : [];
+              return (
+                <View key={p.id} style={styles.historyRow}>
+                  <Text style={styles.historyVersion}>v{p.version}</Text>
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <Text style={styles.meta}>
+                      {formatDate(p.createdAt)} · {p.variables.length} variáveis · {usage.get(p.id) ?? 0} sessão(ões)
+                      {p.createdBy ? ` · ${p.createdBy}` : ''}
+                    </Text>
+                    {p.changeNote ? <Text style={styles.note}>{p.changeNote}</Text> : null}
+                    {changes.map((c) => (
+                      <Text key={c.key} style={styles.change}>
+                        {c.kind === 'added' ? '+ ' : c.kind === 'removed' ? '- ' : '~ '}
+                        {c.label}
+                        {c.details.length ? `: ${c.details.join('; ')}` : c.kind === 'removed' ? ' (removida)' : ''}
+                      </Text>
+                    ))}
+                  </View>
                 </View>
-              </View>
-            ))}
+              );
+            })}
           </Section>
         ) : null}
       </KeyboardAwareScrollView>
@@ -158,6 +170,7 @@ export default function ProtocolScreen() {
 }
 
 const styles = StyleSheet.create({
+  change: { fontSize: 12, color: Colors.text, lineHeight: 17 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   content: { padding: 16, gap: 12, paddingBottom: 40 },
   versionCard: { flexDirection: 'row', gap: 10, alignItems: 'center' },
