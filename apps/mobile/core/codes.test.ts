@@ -27,3 +27,14 @@ describe('QR de amostras', () => {
     expect(normalizeCode(' t1_r1 ')).toBe('T1_R1');
   });
 });
+
+describe('ORCID', () => {
+  it('valida o dígito verificador', async () => {
+    const { normalizeOrcid } = await import('./codes');
+    expect(normalizeOrcid('0000-0002-1825-0097')).toBe('0000-0002-1825-0097');
+    expect(normalizeOrcid('https://orcid.org/0000-0001-5109-3700')).toBe('0000-0001-5109-3700');
+    expect(normalizeOrcid('0000-0002-1694-233x')).toBe('0000-0002-1694-233X');
+    expect(normalizeOrcid('0000-0002-1825-0098')).toBeNull();
+    expect(normalizeOrcid('1234')).toBeNull();
+  });
+});

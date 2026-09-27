@@ -68,3 +68,18 @@ class URLSearchParamsLite {
 export function normalizeCode(code: string): string {
   return code.trim().toUpperCase();
 }
+
+/**
+ * Valida um ORCID iD (formato 0000-0000-0000-000X e dígito verificador ISO 7064 11,2).
+ * Aceita também a URL https://orcid.org/...
+ */
+export function normalizeOrcid(input: string): string | null {
+  const text = input.trim().replace(/^https?:\/\/orcid\.org\//i, '').toUpperCase();
+  if (!/^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$/.test(text)) return null;
+  const digits = text.replace(/-/g, '');
+  let total = 0;
+  for (let i = 0; i < 15; i++) total = (total + Number(digits[i])) * 2;
+  const result = (12 - (total % 11)) % 11;
+  const check = result === 10 ? 'X' : String(result);
+  return check === digits[15] ? text : null;
+}
