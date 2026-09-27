@@ -52,7 +52,7 @@ export function variableColumns(v: VariableDefinition): Column[] {
         name: `${v.key}_${suffix}`,
         type: 'number' as const,
         unit,
-        title: `${v.label} — ${label}`,
+        title: `${v.label} - ${label}`,
       }));
     case 'image':
       return [{ name: v.key, type: 'string', title: v.label, description: 'Caminho relativo do arquivo de imagem no pacote' }];
@@ -62,7 +62,7 @@ export function variableColumns(v: VariableDefinition): Column[] {
       return angles.map((angle) => ({
         name: `${v.key}_${angle.key}`,
         type: 'string' as const,
-        title: `${v.label} — ${angle.label}`,
+        title: `${v.label} - ${angle.label}`,
         description: 'Caminho relativo do arquivo de imagem no pacote',
       }));
     }
@@ -118,7 +118,7 @@ export function variableCells(v: VariableDefinition, value: unknown, fileMap: Ma
 function qcColumns(variables: VariableDefinition[]): Column[] {
   return variables
     .filter((v) => !fieldTypeInfo(v.type).automatic)
-    .map((v) => ({ name: `qc_${v.key}`, type: 'string' as const, title: `Flag de qualidade — ${v.label}` }));
+    .map((v) => ({ name: `qc_${v.key}`, type: 'string' as const, title: `Flag de qualidade - ${v.label}` }));
 }
 
 // ── Tabelas ──────────────────────────────────────────────────────────────────
@@ -315,6 +315,8 @@ export function readingsTable(input: ExportInput): Table {
       { name: 'device_ms', type: 'integer', unit: 'ms', description: 'Relógio monotônico do dispositivo' },
       { name: 'device_utc', type: 'datetime', description: 'Horário UTC do dispositivo (se sincronizado)' },
       { name: 'received_at', type: 'datetime', description: 'Horário UTC de recepção no celular' },
+      { name: 'value_corrected', type: 'number', description: 'Valor após a calibração vigente (vazio se não havia calibração)' },
+      { name: 'calibration_id', type: 'string', description: 'Calibração aplicada (tabela calibrations)' },
     ],
     rows: input.readings.map((r) => ({
       reading_id: r.id,
@@ -328,6 +330,86 @@ export function readingsTable(input: ExportInput): Table {
       device_ms: r.deviceMs ?? null,
       device_utc: r.deviceUtc ?? null,
       received_at: r.receivedAt,
+      value_corrected: r.valueCorrected ?? null,
+      calibration_id: r.calibrationId ?? null,
+    })),
+  };
+}
+
+export function calibrationsTable(input: ExportInput): Table {
+  return {
+    name: 'calibrations',
+    title: 'Calibrações de sensores',
+    description: 'Curvas usadas para corrigir leituras: corrigido = c0 + c1·bruto + c2·bruto².',
+    columns: [
+      { name: 'calibration_id', type: 'string' },
+      { name: 'device_id', type: 'string' },
+      { name: 'sensor_id', type: 'string' },
+      { name: 'method', type: 'string', description: 'offset, linear ou quadratic' },
+      { name: 'c0', type: 'number' },
+      { name: 'c1', type: 'number' },
+      { name: 'c2', type: 'number' },
+      { name: 'r2', type: 'number' },
+      { name: 'rmse', type: 'number', description: 'Erro quadrático médio dos pontos, na unidade do sensor' },
+      { name: 'unit', type: 'string', description: 'Código UCUM' },
+      { name: 'points', type: 'json', description: 'Pontos de referência [{raw, reference}]' },
+      { name: 'reference_instrument', type: 'string' },
+      { name: 'certificate', type: 'string' },
+      { name: 'valid_from', type: 'datetime' },
+      { name: 'valid_until', type: 'datetime' },
+      { name: 'revoked_at', type: 'datetime' },
+      { name: 'revoked_reason', type: 'string' },
+      { name: 'created_by', type: 'string' },
+      { name: 'created_at', type: 'datetime' },
+    ],
+    rows: (input.calibrations ?? []).map((c) => ({
+      calibration_id: c.id,
+      device_id: c.deviceId,
+      sensor_id: c.sensorId,
+      method: c.method,
+      c0: c.coefficients[0] ?? 0,
+      c1: c.coefficients[1] ?? 0,
+      c2: c.coefficients[2] ?? 0,
+      r2: c.r2,
+      rmse: c.rmse,
+      unit: c.unit,
+      points: c.points,
+      reference_instrument: c.referenceInstrument,
+      certificate: c.certificate,
+      valid_from: c.validFrom,
+      valid_until: c.validUntil,
+      revoked_at: c.revokedAt,
+      revoked_reason: c.revokedReason,
+      created_by: c.createdBy,
+      created_at: c.createdAt,
+    })),
+  };
+}
+
+export function qcReviewsTable(input: ExportInput): Table {
+  return {
+    name: 'qc_reviews',
+    title: 'Revisões de QC',
+    description: 'Valores sinalizados que foram conferidos e aceitos por uma pessoa (o dado original não muda).',
+    columns: [
+      { name: 'review_id', type: 'string' },
+      { name: 'observation_id', type: 'string' },
+      { name: 'variable', type: 'string' },
+      { name: 'flag', type: 'string' },
+      { name: 'decision', type: 'string' },
+      { name: 'note', type: 'string' },
+      { name: 'reviewed_by', type: 'string' },
+      { name: 'reviewed_at', type: 'datetime' },
+    ],
+    rows: (input.qcReviews ?? []).map((r) => ({
+      review_id: r.id,
+      observation_id: r.observationId,
+      variable: r.variableKey,
+      flag: r.flag,
+      decision: r.decision,
+      note: r.note,
+      reviewed_by: r.createdBy,
+      reviewed_at: r.createdAt,
     })),
   };
 }
@@ -340,5 +422,8 @@ export function buildTables(input: ExportInput): Table[] {
     sessionsTable(input),
     eventsTable(input),
     readingsTable(input),
+    // tabelas opcionais só entram quando têm conteúdo
+    ...((input.calibrations ?? []).length > 0 ? [calibrationsTable(input)] : []),
+    ...((input.qcReviews ?? []).length > 0 ? [qcReviewsTable(input)] : []),
   ];
 }

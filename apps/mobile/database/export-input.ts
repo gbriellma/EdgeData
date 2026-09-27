@@ -2,7 +2,10 @@ import type { ExportInput } from '@/core/export/model';
 import type { Db } from './db';
 import { listExperimentAudit } from './repo/common';
 import { getExperiment, listProtocols } from './repo/experiments';
+import { listCalibrations } from './repo/calibrations';
 import { listDevices, listReadings } from './repo/devices';
+import { listImports } from './repo/imports';
+import { listQcReviews } from './repo/quality';
 import { listFiles, listObservations } from './repo/observations';
 import { listSamples } from './repo/samples';
 import { listEvents, listSessions } from './repo/sessions';
@@ -44,7 +47,7 @@ export async function loadExportInput(
   const experiment = await getExperiment(db, experimentId);
   if (!experiment) throw new Error('Experimento não encontrado');
 
-  const [protocols, samples, sessions, observations, events, readings, devices, audit, files] = await Promise.all([
+  const [protocols, samples, sessions, observations, events, readings, devices, audit, files, qcReviews, imports] = await Promise.all([
     listProtocols(db, experimentId),
     listSamples(db, experimentId, { includeArchived: true }),
     listSessions(db, experimentId),
@@ -54,6 +57,8 @@ export async function loadExportInput(
     listDevices(db),
     listExperimentAudit(db, experimentId),
     listFiles(db, { experimentId }),
+    listQcReviews(db, experimentId),
+    listImports(db, experimentId),
   ]);
 
   // Ordem cronológica (do banco): nomes de arquivo e linhas saem estáveis entre exportações
@@ -95,6 +100,9 @@ export async function loadExportInput(
     ...readings.map((r) => r.deviceId),
     ...sessions.flatMap((s) => s.deviceSnapshot.map((d) => d.deviceId)),
   ]);
+
+  // Calibrações dos sensores deste dataset (usadas nas leituras ou vigentes nos dispositivos)
+  const calibrations = await listCalibrations(db, { deviceIds: [...deviceIds] });
 
   const input: ExportInput = {
     experiment: {
@@ -164,9 +172,51 @@ export async function loadExportInput(
       deviceMs: r.deviceMs,
       deviceUtc: r.deviceUtc,
       receivedAt: r.receivedAt,
+      valueCorrected: r.valueCorrected,
+      calibrationId: r.calibrationId,
     })),
     devices: devices.filter((d) => deviceIds.has(d.id)).map((d) => ({ id: d.id, name: d.name, manifest: d.manifest })),
     audit: audit.map((a) => ({ id: a.id, at: a.at, actor: a.actor, entity: a.entity, entityId: a.entityId, action: a.action, details: a.details })),
+    calibrations: calibrations.map((c) => ({
+      id: c.id,
+      deviceId: c.deviceId,
+      sensorId: c.sensorId,
+      method: c.method,
+      points: c.points,
+      coefficients: c.coefficients,
+      r2: c.r2,
+      rmse: c.rmse,
+      unit: c.unit,
+      referenceInstrument: c.referenceInstrument,
+      certificate: c.certificate,
+      validFrom: c.validFrom,
+      validUntil: c.validUntil,
+      revokedAt: c.revokedAt,
+      revokedReason: c.revokedReason,
+      createdBy: c.createdBy,
+      createdAt: c.createdAt,
+    })),
+    qcReviews: qcReviews.map((r) => ({
+      id: r.id,
+      observationId: r.observationId,
+      variableKey: r.variableKey,
+      flag: r.flag,
+      decision: r.decision,
+      note: r.note,
+      createdBy: r.createdBy,
+      createdAt: r.createdAt,
+    })),
+    imports: imports.map((i) => ({
+      id: i.id,
+      sessionId: i.sessionId,
+      fileName: i.fileName,
+      sha256: i.sha256,
+      rowsTotal: i.rowsTotal,
+      rowsImported: i.rowsImported,
+      mapping: i.mapping,
+      createdBy: i.createdBy,
+      createdAt: i.createdAt,
+    })),
     release,
     software,
     fileMap,

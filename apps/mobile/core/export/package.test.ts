@@ -156,6 +156,39 @@ describe('pacote de dataset', () => {
   });
 });
 
+describe('calibração, revisões de QC e importações', () => {
+  const input: ExportInput = {
+    ...fixture(),
+    readings: [{ ...fixture().readings[0], valueCorrected: 23.9, calibrationId: 'cal1' }],
+    calibrations: [
+      {
+        id: 'cal1', deviceId: 'esp32-01', sensorId: 'soil_temp', method: 'linear', points: [{ raw: 0, reference: 0.5 }, { raw: 50, reference: 50.5 }],
+        coefficients: [0.5, 1], r2: 1, rmse: 0, unit: 'Cel', referenceInstrument: 'Termômetro padrão', certificate: null,
+        validFrom: '2026-01-01T00:00:00.000Z', validUntil: '2027-01-01T00:00:00.000Z', revokedAt: null, revokedReason: null, createdBy: 'Gabriel', createdAt: '2026-01-01T00:00:00.000Z',
+      },
+    ],
+    qcReviews: [{ id: 'q1', observationId: 'o2', variableKey: 'altura', flag: 'OUT_OF_RANGE', decision: 'accepted', note: 'conferido', createdBy: 'Gabriel', createdAt: '2026-02-20T00:00:00.000Z' }],
+    imports: [{ id: 'i1', sessionId: 'ss1', fileName: 'antigo.xlsx', sha256: 'ab'.repeat(32), rowsTotal: 3, rowsImported: 2, mapping: {}, createdBy: 'Gabriel', createdAt: '2026-02-21T00:00:00.000Z' }],
+  };
+  const pkg = buildDatasetPackage(input, ['jsonl']);
+  const file = (path: string) => pkg.files.find((f) => f.path === path)?.data as string;
+
+  it('exporta valor bruto e corrigido lado a lado', () => {
+    const reading = JSON.parse(file('data/readings.jsonl').trim());
+    expect(reading).toMatchObject({ value: 23.4, value_corrected: 23.9, calibration_id: 'cal1' });
+    const cal = JSON.parse(file('data/calibrations.jsonl').trim());
+    expect(cal).toMatchObject({ c0: 0.5, c1: 1, c2: 0, method: 'linear' });
+    expect(JSON.parse(file('data/qc_reviews.jsonl').trim())).toMatchObject({ variable: 'altura', decision: 'accepted' });
+  });
+
+  it('documenta calibração e importação no README e na proveniência', () => {
+    expect(file('README.md')).toMatch(/## Calibração/);
+    expect(file('README.md')).toMatch(/antigo\.xlsx/);
+    const prov = JSON.parse(file('provenance.json'));
+    expect(Object.keys(prov.entity)).toEqual(expect.arrayContaining([`edgedata:file/${'ab'.repeat(32)}`, 'edgedata:calibration/cal1']));
+  });
+});
+
 describe('utilidades', () => {
   it('versões', () => {
     expect(nextReleaseVersion([])).toBe('1.0.0');

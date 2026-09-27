@@ -98,8 +98,20 @@ export function buildMetadata(input: ExportInput) {
       observations_retracted: input.observations.filter((o) => o.status === 'retracted').length,
       events: input.events.length,
       readings: input.readings.length,
+      calibrations: (input.calibrations ?? []).length,
+      qc_reviews: (input.qcReviews ?? []).length,
       files: input.fileMap.size,
     },
+    imports: (input.imports ?? []).map((i) => ({
+      session_id: i.sessionId,
+      file_name: i.fileName,
+      sha256: i.sha256,
+      rows_total: i.rowsTotal,
+      rows_imported: i.rowsImported,
+      mapping: i.mapping,
+      imported_by: i.createdBy,
+      imported_at: i.createdAt,
+    })),
     software: input.software,
   };
 }
@@ -210,6 +222,22 @@ export function buildProvenance(input: ExportInput) {
     }
   }
 
+  // Arquivos de origem das importações: a sessão de importação "usou" o arquivo
+  for (const imp of input.imports ?? []) {
+    const fileId = `${ns}:file/${imp.sha256 ?? imp.id}`;
+    entity[fileId] = { 'prov:type': `${ns}:SourceFile`, 'prov:label': imp.fileName, ...(imp.sha256 ? { [`${ns}:sha256`]: imp.sha256 } : {}) };
+    used[`_:u_import_${imp.id}`] = { 'prov:activity': `${ns}:session/${imp.sessionId}`, 'prov:entity': fileId };
+  }
+  for (const c of input.calibrations ?? []) {
+    entity[`${ns}:calibration/${c.id}`] = {
+      'prov:type': `${ns}:Calibration`,
+      'prov:label': `${c.deviceId}/${c.sensorId} ${c.method}`,
+      [`${ns}:coefficients`]: c.coefficients,
+      [`${ns}:validFrom`]: c.validFrom,
+      ...(c.validUntil ? { [`${ns}:validUntil`]: c.validUntil } : {}),
+    };
+  }
+
   const exportActivity = `${ns}:export/${input.release.version}`;
   activity[exportActivity] = { 'prov:startTime': input.release.createdAt, 'prov:label': `Exportação ${input.release.version}` };
   agent[`${ns}:software`] = { 'prov:type': 'prov:SoftwareAgent', 'prov:label': `${input.software.name} ${input.software.version}` };
@@ -268,7 +296,7 @@ export function buildReadme(input: ExportInput, resources: readonly PackagedReso
     section('Equipe');
     for (const m of metadata.team) {
       const extra = [m.role, m.affiliation, m.orcid ? `ORCID [${m.orcid}](https://orcid.org/${m.orcid})` : undefined].filter(Boolean).join(' · ');
-      lines.push(`- ${m.name}${extra ? ` — ${extra}` : ''}`);
+      lines.push(`- ${m.name}${extra ? ` - ${extra}` : ''}`);
     }
   }
 
@@ -301,7 +329,7 @@ export function buildReadme(input: ExportInput, resources: readonly PackagedReso
     for (const v of mergedVariables(input, scope)) {
       const unit = v.unit ? `${unitSymbol(v.unit)} (\`${v.unit}\`)` : '';
       const range = v.expectedMin !== undefined || v.expectedMax !== undefined ? `${v.expectedMin ?? '−∞'} a ${v.expectedMax ?? '+∞'}` : '';
-      lines.push(`| ${scope === 'sample' ? 'samples' : 'observations'} | \`${v.key}\` | ${mdEscape(v.label)}${v.description ? ` — ${mdEscape(v.description)}` : ''} | ${fieldTypeInfo(v.type).label} | ${unit} | ${range} |`);
+      lines.push(`| ${scope === 'sample' ? 'samples' : 'observations'} | \`${v.key}\` | ${mdEscape(v.label)}${v.description ? ` - ${mdEscape(v.description)}` : ''} | ${fieldTypeInfo(v.type).label} | ${unit} | ${range} |`);
     }
   }
   lines.push('', 'Detalhes completos em `data_dictionary.csv`. Unidades seguem o padrão UCUM.');
@@ -309,13 +337,13 @@ export function buildReadme(input: ExportInput, resources: readonly PackagedReso
   if (input.devices.length > 0) {
     section('Dispositivos e sensores');
     for (const d of input.devices) {
-      const fw = d.manifest.firmware ? ` — firmware ${d.manifest.firmware.name ?? ''} ${d.manifest.firmware.version}${d.manifest.firmware.commit ? ` (${d.manifest.firmware.commit})` : ''}` : '';
+      const fw = d.manifest.firmware ? ` - firmware ${d.manifest.firmware.name ?? ''} ${d.manifest.firmware.version}${d.manifest.firmware.commit ? ` (${d.manifest.firmware.commit})` : ''}` : '';
       lines.push(`- **${d.name}** (${d.manifest.model ?? d.manifest.hardware?.mcu ?? 'modelo não informado'})${fw}`);
       for (const s of d.manifest.sensors) {
         const details = [s.model, getUnit(s.unit) ? unitSymbol(s.unit) : s.unit, s.range ? `faixa ${s.range[0]}…${s.range[1]}` : undefined, s.resolution ? `resolução ${s.resolution}` : undefined, s.accuracy ? `exatidão ±${s.accuracy}` : undefined]
           .filter(Boolean)
           .join(', ');
-        lines.push(`  - \`${s.id}\` ${s.label ?? ''}${details ? ` — ${details}` : ''}`);
+        lines.push(`  - \`${s.id}\` ${s.label ?? ''}${details ? ` - ${details}` : ''}`);
       }
     }
   }
@@ -325,12 +353,34 @@ export function buildReadme(input: ExportInput, resources: readonly PackagedReso
   for (const r of resources) lines.push(`| \`${r.path}\` | ${mdEscape(r.table.title)} | ${r.table.rows.length} |`);
   if (mediaCount > 0) lines.push(`| \`files/\` | Fotos e anexos | ${mediaCount} arquivos |`);
   lines.push(
-    '| `metadata.json` | Experimento, desenho, protocolos, dispositivos | — |',
-    '| `datapackage.json` | Descrição Frictionless Data Package (Table Schema) | — |',
-    '| `data_dictionary.csv` | Dicionário de dados | — |',
-    '| `provenance.json` | Proveniência (W3C PROV-JSON) e trilha de auditoria | — |',
-    '| `checksums.sha256` | SHA-256 de todos os arquivos | — |',
+    '| `metadata.json` | Experimento, desenho, protocolos, dispositivos | - |',
+    '| `datapackage.json` | Descrição Frictionless Data Package (Table Schema) | - |',
+    '| `data_dictionary.csv` | Dicionário de dados | - |',
+    '| `provenance.json` | Proveniência (W3C PROV-JSON) e trilha de auditoria | - |',
+    '| `checksums.sha256` | SHA-256 de todos os arquivos | - |',
   );
+
+  if ((input.calibrations ?? []).length > 0) {
+    section('Calibração');
+    lines.push(
+      'Leituras de sensores guardam o valor bruto (`value`) e, quando havia calibração vigente, o valor corrigido',
+      '(`value_corrected`) com a curva usada (`calibration_id`). Curvas em `calibrations`:',
+      '',
+    );
+    for (const c of input.calibrations ?? []) {
+      const [c0 = 0, c1 = 0, c2 = 0] = c.coefficients;
+      const eq = `${c2 ? `${c2}·x² + ` : ''}${c1}·x + ${c0}`;
+      const validity = `${c.validFrom.slice(0, 10)} a ${c.validUntil ? c.validUntil.slice(0, 10) : 'sem prazo'}`;
+      lines.push(`- \`${c.deviceId}/${c.sensorId}\`: y = ${eq} (RMSE ${c.rmse ?? '?'}; ${validity})${c.revokedAt ? `, revogada: ${c.revokedReason ?? ''}` : ''}`);
+    }
+  }
+
+  if ((input.imports ?? []).length > 0) {
+    section('Dados importados');
+    for (const i of input.imports ?? []) {
+      lines.push(`- ${i.rowsImported} observação(ões) de \`${i.fileName}\`${i.sha256 ? ` (SHA-256 \`${i.sha256.slice(0, 16)}…\`)` : ''}, importadas em ${i.createdAt.slice(0, 10)}.`);
+    }
+  }
 
   section('Qualidade dos dados');
   lines.push(
@@ -345,7 +395,7 @@ export function buildReadme(input: ExportInput, resources: readonly PackagedReso
   for (const [flag, info] of Object.entries(QC_FLAG_INFO) as [QcFlag, (typeof QC_FLAG_INFO)[QcFlag]][]) {
     const count = flagCounts.get(flag);
     if (count || flag === 'GOOD' || flag === 'MISSING' || flag === 'OUT_OF_RANGE') {
-      lines.push(`- \`${flag}\` — ${info.description}${count ? `: ${count} valor(es)` : ''}`);
+      lines.push(`- \`${flag}\` - ${info.description}${count ? `: ${count} valor(es)` : ''}`);
     }
   }
   const expected = expectedCounts(design).observations;
@@ -353,6 +403,8 @@ export function buildReadme(input: ExportInput, resources: readonly PackagedReso
   const retracted = input.observations.filter((o) => o.status === 'retracted').length;
   lines.push('', `Observações coletadas: ${collected} de ${expected} previstas pelo desenho.`);
   if (retracted > 0) lines.push(`Observações retratadas: ${retracted}.`);
+  const reviews = (input.qcReviews ?? []).length;
+  if (reviews > 0) lines.push(`Valores sinalizados conferidos e aceitos por uma pessoa: ${reviews} (ver \`qc_reviews\`).`);
 
   section('Integridade');
   lines.push('Verifique que nenhum arquivo foi alterado com:', '', '```bash', 'sha256sum -c checksums.sha256', '```');
