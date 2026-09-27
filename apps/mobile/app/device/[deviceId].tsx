@@ -1,4 +1,5 @@
-import { useLocalSearchParams } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import React, { useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { ConnectionCard } from '@/components/devices/ConnectionCard';
@@ -7,6 +8,8 @@ import { KeyValue, Section } from '@/components/ui/Section';
 import { Colors } from '@/constants/colors';
 import { unitSymbol } from '@/core/units';
 import { getDb } from '@/database/connection';
+import { activeCalibration, calibrationStatus } from '@/core/calibration';
+import { listCalibrations } from '@/database/repo/calibrations';
 import { getDevice } from '@/database/repo/devices';
 import { useAsync } from '@/hooks/useAsync';
 import { useDevices } from '@/stores/devices';
@@ -14,10 +17,24 @@ import { formatDateTime } from '@/utils/formatters';
 
 const TRANSPORTS: Record<string, string> = { ble: 'Bluetooth LE', serial: 'Serial', wifi: 'Wi-Fi' };
 
+function calibrationLabel(calibrations: { sensorId: string; id: string; coefficients: number[]; validFrom: string; validUntil: string | null; revokedAt: string | null; createdAt: string }[], sensorId: string): string {
+  const now = new Date().toISOString();
+  const mine = calibrations.filter((c) => c.sensorId === sensorId);
+  const active = activeCalibration(mine, now);
+  if (active) return calibrationStatus(active, now) === 'expiring' ? 'Calibração vence em breve' : 'Calibração vigente';
+  return mine.length > 0 ? 'Calibração vencida ou revogada' : 'Sem calibração';
+}
+
 export default function DeviceScreen() {
   const { deviceId } = useLocalSearchParams<{ deviceId: string }>();
   const [showJson, setShowJson] = useState(false);
-  const { data: device } = useAsync(async () => getDevice(await getDb(), deviceId), [deviceId]);
+  const router = useRouter();
+  const { data } = useAsync(async () => {
+    const db = await getDb();
+    const [found, calibrations] = await Promise.all([getDevice(db, deviceId), listCalibrations(db, { deviceId })]);
+    return { device: found, calibrations };
+  }, [deviceId]);
+  const device = data === undefined ? undefined : data.device;
   const connection = useDevices((s) => Object.values(s.connections).find((c) => c.device?.id === deviceId));
 
   if (device === undefined) {
@@ -83,6 +100,14 @@ export default function DeviceScreen() {
                   : null
               }
             />
+                      <TouchableOpacity
+              style={styles.calibration}
+              onPress={() => router.push({ pathname: '/device/calibration', params: { deviceId, sensorId: sensor.id } } as Href)}
+            >
+              <Ionicons name="speedometer-outline" size={18} color={Colors.primary} />
+              <Text style={styles.calibrationText}>{calibrationLabel(data?.calibrations ?? [], sensor.id)}</Text>
+              <Ionicons name="chevron-forward" size={18} color={Colors.textSecondary} />
+            </TouchableOpacity>
           </Card>
         ))}
       </Section>
@@ -109,4 +134,6 @@ const styles = StyleSheet.create({
   sensorTitle: { fontSize: 15, fontWeight: '700', color: Colors.text },
   link: { color: Colors.primary, fontWeight: '600' },
   code: { fontFamily: 'monospace', fontSize: 12, color: Colors.text },
+  calibration: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.border },
+  calibrationText: { flex: 1, fontSize: 13, fontWeight: '600', color: Colors.primary },
 });

@@ -4,6 +4,8 @@ import type { ObsMessage } from '@/core/device/protocol';
 import { DeviceSession, type LatestValue } from '@/core/device/session';
 import { getDb, getDeviceDb } from '@/database/connection';
 import type { Device } from '@/database/models';
+import { applyCalibration } from '@/core/calibration';
+import { findActiveCalibration } from '@/database/repo/calibrations';
 import { recordReadings, upsertDevice } from '@/database/repo/devices';
 import { addDevicesToSnapshot, recordEvent } from '@/database/repo/sessions';
 import { connectBle, ensureBlePermissions, startScan as bleStartScan, type ScanResult } from '@/devices/ble';
@@ -38,6 +40,9 @@ export interface RecordingTarget {
 
 export interface SensorRead {
   raw: number | string | boolean | null;
+  /** Valor após a calibração vigente (null se não houver calibração) */
+  corrected: number | null;
+  calibrationId: string | null;
   sensor: SensorManifest;
   /** Leitura gravada (quando há sessão ligada) — vai para a proveniência da observação */
   readingId: string | null;
@@ -329,8 +334,12 @@ export const useDevices = create<DevicesState>((set, get) => {
       if (!(sensorId in message.values)) throw new Error(`A leitura não trouxe o sensor "${sensorId}"`);
       const ids = (await recordedObs.get(message)) ?? [];
       const index = Object.keys(message.values).indexOf(sensorId);
+      const raw = message.values[sensorId];
+      const calibration = typeof raw === 'number' ? await findActiveCalibration(await getDb(), deviceId, sensorId, new Date().toISOString()) : null;
       return {
-        raw: message.values[sensorId],
+        raw,
+        corrected: calibration && typeof raw === 'number' ? applyCalibration(calibration.coefficients, raw) : null,
+        calibrationId: calibration?.id ?? null,
         sensor,
         readingId: ids[index] ?? null,
         receivedAt: session.latest.get(sensorId)?.receivedAt ?? new Date().toISOString(),

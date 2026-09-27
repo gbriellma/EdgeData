@@ -198,7 +198,8 @@ export default function CollectScreen() {
   const readFromSensor = useCallback(async (variable: ProtocolVariable, binding: SensorBinding) => {
     try {
       const result = await useDevices.getState().readSensor(binding.deviceId, binding.sensorId);
-      const converted = readingToValue(result.raw, result.sensor, variable);
+      // com calibração vigente, o formulário recebe o valor corrigido (o bruto fica na leitura)
+      const converted = readingToValue(result.corrected ?? result.raw, result.sensor, variable);
       if (!converted.ok) {
         Alert.alert(variable.label, converted.reason);
         return;
