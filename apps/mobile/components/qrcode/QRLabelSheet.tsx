@@ -1,15 +1,18 @@
 import * as Print from 'expo-print';
 import QRCodeLib from 'qrcode';
+import { sampleQrPayload } from '@/core/codes';
 
-const QR_URI_PREFIX = 'edgedata://subject/';
 const COLUMNS = 3;
 
-interface SubjectEntry {
+export interface LabelEntry {
   id: string;
-  label: string;
+  /** Código legível impresso em destaque */
+  code: string;
+  /** Linha secundária (tratamento, experimento…) */
+  label?: string;
 }
 
-interface SubjectWithSvg extends SubjectEntry {
+interface LabelWithSvg extends LabelEntry {
   svgString: string;
 }
 
@@ -27,24 +30,25 @@ async function generateQRSvg(data: string): Promise<string> {
   }
 }
 
-function buildTableRows(subjects: SubjectWithSvg[]): string {
+function buildTableRows(subjects: LabelWithSvg[]): string {
   const rows: string[] = [];
 
   for (let i = 0; i < subjects.length; i += COLUMNS) {
     const chunk = subjects.slice(i, i + COLUMNS);
 
     while (chunk.length < COLUMNS) {
-      chunk.push({ id: '', label: '', svgString: '' });
+      chunk.push({ id: '', code: '', label: '', svgString: '' });
     }
 
     const cells = chunk
-      .map(({ id, label, svgString }) => {
+      .map(({ id, code, label, svgString }) => {
         if (!id) return '<td class="label-cell empty-cell"></td>';
         return `
       <td class="label-cell">
         <div class="qr-container">
           <div class="qr-svg">${svgString}</div>
-          <div class="subject-label">${escapeHtml(label)}</div>
+          <div class="subject-label">${escapeHtml(code)}</div>
+          ${label ? `<div class="subject-sublabel">${escapeHtml(label)}</div>` : ''}
         </div>
       </td>`;
       })
@@ -65,10 +69,9 @@ function escapeHtml(text: string): string {
     .replace(/'/g, '&#39;');
 }
 
-function buildHtml(subjects: SubjectWithSvg[]): string {
+function buildHtml(subjects: LabelWithSvg[], title: string): string {
   const tableRows = buildTableRows(subjects);
   const totalSubjects = subjects.length;
-  const totalPages = Math.ceil(totalSubjects / (COLUMNS * 5));
   const geradoEm = new Date().toLocaleDateString('pt-BR', {
     day: '2-digit',
     month: '2-digit',
@@ -173,6 +176,15 @@ function buildHtml(subjects: SubjectWithSvg[]): string {
       line-height: 1.3;
     }
 
+    .subject-sublabel {
+      margin-top: 2px;
+      font-size: 9px;
+      color: #6B7280;
+      text-align: center;
+      max-width: 160px;
+      word-wrap: break-word;
+    }
+
     .page-footer {
       margin-top: 12px;
       text-align: center;
@@ -196,8 +208,8 @@ function buildHtml(subjects: SubjectWithSvg[]): string {
 </head>
 <body>
   <div class="page-header">
-    <h1>EdgeData — Etiquetas QR Code</h1>
-    <p>Total de sujeitos: ${totalSubjects} &nbsp;|&nbsp; Gerado em: ${geradoEm}</p>
+    <h1>${escapeHtml(title)}</h1>
+    <p>Amostras: ${totalSubjects} &nbsp;|&nbsp; Gerado em: ${geradoEm}</p>
   </div>
 
   <div class="offline-note">
@@ -213,38 +225,24 @@ function buildHtml(subjects: SubjectWithSvg[]): string {
   </table>
 
   <div class="page-footer">
-    EdgeData &copy; ${new Date().getFullYear()} — edgedata://subject/{id}
+    EdgeData — edgedata://sample/{uuid}?c={código}
   </div>
 </body>
 </html>`;
 }
 
 /**
- * Gera um PDF com etiquetas QR code para os sujeitos fornecidos
- * e abre o compartilhamento nativo do dispositivo.
- *
- * @param subjects Lista de sujeitos com `id` e `label`
+ * Gera um PDF com etiquetas (QR Code com UUID + código legível) e devolve o URI.
  */
-export async function generateQRLabelPDF(subjects: SubjectEntry[]): Promise<string> {
-  if (subjects.length === 0) {
-    throw new Error('Nenhum sujeito fornecido para geração de etiquetas.');
+export async function generateQRLabelPDF(entries: LabelEntry[], title = 'EdgeData — Etiquetas'): Promise<string> {
+  if (entries.length === 0) {
+    throw new Error('Nenhuma amostra selecionada para gerar etiquetas.');
   }
 
-  // Generate all QR codes locally in parallel — much faster than fetching from API
-  const subjectsWithSvg: SubjectWithSvg[] = await Promise.all(
-    subjects.map(async (s) => {
-      const qrData = `${QR_URI_PREFIX}${s.id}`;
-      const svgString = await generateQRSvg(qrData);
-      return { ...s, svgString };
-    })
+  const withSvg: LabelWithSvg[] = await Promise.all(
+    entries.map(async (entry) => ({ ...entry, svgString: await generateQRSvg(sampleQrPayload(entry.id, entry.code)) })),
   );
 
-  const html = buildHtml(subjectsWithSvg);
-
-  const { uri } = await Print.printToFileAsync({
-    html,
-    base64: false,
-  });
-
+  const { uri } = await Print.printToFileAsync({ html: buildHtml(withSvg, title), base64: false });
   return uri;
 }

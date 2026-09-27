@@ -17,7 +17,7 @@ export interface AnglePhoto {
 
 interface MultiAngleCaptureProps {
   photos: AnglePhoto[];
-  angles: Array<{ key: string; label: string }>;
+  angles: { key: string; label: string }[];
   onCapture: (angle: string) => void;
   onRemove: (angle: string) => void;
   error?: string;
@@ -45,7 +45,7 @@ export function MultiAngleCapture({
       </Text>
 
       <Text style={styles.subtitle}>
-        {capturedCount}/{angles.length} angulos capturados
+        {capturedCount}/{angles.length} ângulos capturados
       </Text>
 
       <ScrollView
@@ -125,7 +125,7 @@ export function MultiAngleCapture({
       {capturedCount === angles.length && angles.length > 0 && (
         <View style={styles.completeBar}>
           <Ionicons name="checkmark-circle" size={18} color={Colors.primary} />
-          <Text style={styles.completeText}>Todos os angulos capturados</Text>
+          <Text style={styles.completeText}>Todos os ângulos capturados</Text>
         </View>
       )}
 

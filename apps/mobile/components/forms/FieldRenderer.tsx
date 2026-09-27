@@ -11,21 +11,38 @@ import {
   Image as RNImage,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { SchemaField } from '@/types/schema';
+import type { GeoPoint, VariableDefinition } from '@/core/types';
+import { unitSymbol } from '@/core/units';
+import { isGeoPoint } from '@/core/validation';
 import { Colors } from '@/constants/colors';
+import { formatGeoPoint } from '@/lib/location';
+import { resolveMediaUri } from '@/lib/media';
 import { MultiAngleCapture, AnglePhoto } from './MultiAngleCapture';
 
-interface PhotoConfig {
+export interface PhotoConfig {
   width?: number;
   height?: number;
 }
 
+export interface SensorHint {
+  /** Ex.: "Estação 01 · soil_temp" */
+  source: string;
+  /** Última leitura disponível, se houver */
+  latest?: string;
+  onRead: () => void;
+}
+
 interface FieldRendererProps {
-  field: SchemaField;
+  field: VariableDefinition;
   value: unknown;
   onChange: (value: unknown) => void;
   error?: string;
-  onCaptureImage?: (fieldName: string, angle?: string, photoConfig?: PhotoConfig) => void;
+  /** Mostra faixa esperada, resolução e descrição (modo científico) */
+  detailed?: boolean;
+  sensor?: SensorHint;
+  onCaptureImage?: (key: string, angle?: string, photoConfig?: PhotoConfig) => void;
+  onScanCode?: (key: string) => void;
+  onCaptureLocation?: (key: string) => void;
 }
 
 export function FieldRenderer({
@@ -33,48 +50,70 @@ export function FieldRenderer({
   value,
   onChange,
   error,
+  detailed,
+  sensor,
   onCaptureImage,
+  onScanCode,
+  onCaptureLocation,
 }: FieldRendererProps) {
   const { type, label, required, config } = field;
+  const unit = field.unit && field.unit !== '{score}' ? unitSymbol(field.unit) : '';
 
   const renderLabel = () => (
-    <Text style={styles.label}>
-      {label}
-      {required && <Text style={styles.required}> *</Text>}
-      {config.unit && <Text style={styles.unit}> ({config.unit})</Text>}
-    </Text>
+    <View>
+      <Text style={styles.label}>
+        {label}
+        {required && <Text style={styles.required}> *</Text>}
+        {unit ? <Text style={styles.unit}> ({unit})</Text> : null}
+      </Text>
+      {detailed && (field.description || field.expectedMin !== undefined || field.expectedMax !== undefined || field.resolution) ? (
+        <Text style={styles.detail}>
+          {[
+            field.description,
+            field.expectedMin !== undefined || field.expectedMax !== undefined
+              ? `esperado ${field.expectedMin ?? '−∞'} a ${field.expectedMax ?? '+∞'}${unit ? ` ${unit}` : ''}`
+              : undefined,
+            field.resolution ? `resolução ${field.resolution}` : undefined,
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+        </Text>
+      ) : null}
+    </View>
   );
 
-  const renderError = () =>
-    error ? <Text style={styles.error}>{error}</Text> : null;
+  const renderError = () => (error ? <Text style={styles.error}>{error}</Text> : null);
+
+  const renderSensor = () =>
+    sensor ? (
+      <TouchableOpacity style={styles.sensorBtn} onPress={sensor.onRead}>
+        <Ionicons name="bluetooth" size={16} color={Colors.primary} />
+        <Text style={styles.sensorText} numberOfLines={1}>
+          Ler do sensor · {sensor.source}
+          {sensor.latest ? ` (${sensor.latest})` : ''}
+        </Text>
+      </TouchableOpacity>
+    ) : null;
+
+  const outOfExpected = (() => {
+    const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value.replace(',', '.')) : NaN;
+    if (!Number.isFinite(n)) return false;
+    return (field.expectedMin !== undefined && n < field.expectedMin) || (field.expectedMax !== undefined && n > field.expectedMax);
+  })();
 
   switch (type) {
     case 'short_text':
-      return (
-        <View style={styles.container}>
-          {renderLabel()}
-          <TextInput
-            style={[styles.input, error && styles.inputError]}
-            value={(value as string) ?? ''}
-            onChangeText={onChange}
-            maxLength={256}
-            placeholderTextColor={Colors.textSecondary}
-            placeholder={`Inserir ${label.toLowerCase()}`}
-          />
-          {renderError()}
-        </View>
-      );
-
     case 'long_text':
       return (
         <View style={styles.container}>
           {renderLabel()}
           <TextInput
-            style={[styles.input, styles.multiline, error && styles.inputError]}
+            style={[styles.input, type === 'long_text' && styles.multiline, error && styles.inputError]}
             value={(value as string) ?? ''}
             onChangeText={onChange}
-            multiline
-            textAlignVertical="top"
+            maxLength={type === 'short_text' ? 256 : undefined}
+            multiline={type === 'long_text'}
+            textAlignVertical={type === 'long_text' ? 'top' : 'center'}
             placeholderTextColor={Colors.textSecondary}
             placeholder={`Inserir ${label.toLowerCase()}`}
           />
@@ -82,91 +121,76 @@ export function FieldRenderer({
         </View>
       );
 
-    case 'integer':
+    case 'barcode':
       return (
         <View style={styles.container}>
           {renderLabel()}
-          <TextInput
-            style={[styles.input, error && styles.inputError]}
-            value={value !== undefined && value !== null ? String(value) : ''}
-            onChangeText={(text) => {
-              const cleaned = text.replace(/[^0-9-]/g, '');
-              onChange(cleaned === '' ? '' : cleaned);
-            }}
-            keyboardType="number-pad"
-            placeholderTextColor={Colors.textSecondary}
-            placeholder={
-              config.min !== undefined && config.max !== undefined
-                ? `${config.min} - ${config.max}`
-                : `Inserir ${label.toLowerCase()}`
-            }
-          />
-          {renderError()}
-        </View>
-      );
-
-    case 'decimal':
-      return (
-        <View style={styles.container}>
-          {renderLabel()}
-          <TextInput
-            style={[styles.input, error && styles.inputError]}
-            value={value !== undefined && value !== null ? String(value) : ''}
-            onChangeText={(text) => {
-              const cleaned = text.replace(/[^0-9.,-]/g, '').replace(',', '.');
-              onChange(cleaned === '' ? '' : cleaned);
-            }}
-            keyboardType="decimal-pad"
-            placeholderTextColor={Colors.textSecondary}
-            placeholder={
-              config.min !== undefined && config.max !== undefined
-                ? `${config.min} - ${config.max}`
-                : `Inserir ${label.toLowerCase()}`
-            }
-          />
-          {renderError()}
-        </View>
-      );
-
-    case 'category':
-      return (
-        <CategoryPicker
-          field={field}
-          value={value as string | undefined}
-          onChange={onChange}
-          error={error}
-        />
-      );
-
-    case 'multi_category':
-      return (
-        <MultiCategoryPicker
-          field={field}
-          value={(value as string[]) ?? []}
-          onChange={onChange}
-          error={error}
-        />
-      );
-
-    case 'boolean':
-      return (
-        <View style={styles.container}>
-          <View style={styles.boolRow}>
-            {renderLabel()}
-            <Switch
-              value={!!value}
-              onValueChange={onChange}
-              trackColor={{ false: Colors.border, true: Colors.primaryLight }}
-              thumbColor={value ? Colors.primary : '#f4f3f4'}
+          <View style={styles.inlineRow}>
+            <TextInput
+              style={[styles.input, { flex: 1 }, error && styles.inputError]}
+              value={(value as string) ?? ''}
+              onChangeText={onChange}
+              autoCapitalize="characters"
+              placeholderTextColor={Colors.textSecondary}
+              placeholder="Ler ou digitar código"
             />
+            <TouchableOpacity style={styles.iconBtn} onPress={() => onScanCode?.(field.key)} accessibilityLabel="Ler código com a câmera">
+              <Ionicons name="barcode-outline" size={24} color={Colors.primary} />
+            </TouchableOpacity>
           </View>
           {renderError()}
         </View>
       );
 
+    case 'integer':
+    case 'decimal':
+      return (
+        <View style={styles.container}>
+          {renderLabel()}
+          <TextInput
+            style={[styles.input, error && styles.inputError, !error && outOfExpected && styles.inputWarning]}
+            value={value !== undefined && value !== null ? String(value) : ''}
+            onChangeText={(text) => {
+              const cleaned = type === 'integer' ? text.replace(/[^0-9-]/g, '') : text.replace(/[^0-9.,-]/g, '').replace(',', '.');
+              onChange(cleaned);
+            }}
+            keyboardType={type === 'integer' ? 'number-pad' : 'decimal-pad'}
+            placeholderTextColor={Colors.textSecondary}
+            placeholder={
+              config.min !== undefined && config.max !== undefined ? `${config.min} – ${config.max}` : `Inserir ${label.toLowerCase()}`
+            }
+          />
+          {renderSensor()}
+          {!error && outOfExpected ? <Text style={styles.warning}>Fora da faixa esperada — será marcado para revisão</Text> : null}
+          {renderError()}
+        </View>
+      );
+
+    case 'category':
+      return <CategoryPicker field={field} value={value as string | undefined} onChange={onChange} error={error} />;
+
+    case 'multi_category':
+      return <MultiCategoryPicker field={field} value={Array.isArray(value) ? (value as string[]) : []} onChange={onChange} error={error} />;
+
+    case 'boolean':
+      return (
+        <View style={styles.container}>
+          <View style={styles.boolRow}>
+            <View style={{ flex: 1 }}>{renderLabel()}</View>
+            <Switch
+              value={value === true}
+              onValueChange={onChange}
+              trackColor={{ false: Colors.border, true: Colors.primaryLight }}
+              thumbColor={value ? Colors.primary : '#f4f3f4'}
+            />
+          </View>
+          {renderSensor()}
+          {renderError()}
+        </View>
+      );
+
     case 'image': {
-      // Single photo capture: value is a string URI or null
-      const uri = typeof value === 'string' ? value : null;
+      const uri = typeof value === 'string' && value ? resolveMediaUri(value) : null;
       return (
         <View style={styles.container}>
           {renderLabel()}
@@ -174,25 +198,17 @@ export function FieldRenderer({
             {uri ? (
               <View style={styles.imagePreviewWrapper}>
                 <RNImage source={{ uri }} style={styles.singleImagePreview} />
-                <TouchableOpacity
-                  style={styles.imageRemoveBtn}
-                  onPress={() => onChange(null)}
-                >
+                <TouchableOpacity style={styles.imageRemoveBtn} onPress={() => onChange(null)}>
                   <Ionicons name="close-circle" size={22} color={Colors.error} />
                 </TouchableOpacity>
               </View>
             ) : null}
             <TouchableOpacity
               style={styles.captureButton}
-              onPress={() => onCaptureImage?.(field.name, undefined, {
-                width: config.photoWidth,
-                height: config.photoHeight,
-              })}
+              onPress={() => onCaptureImage?.(field.key, undefined, { width: config.photoWidth, height: config.photoHeight })}
             >
               <Ionicons name={uri ? 'refresh' : 'camera'} size={22} color={Colors.primary} />
-              <Text style={styles.captureButtonText}>
-                {uri ? 'Recapturar' : 'Capturar foto'}
-              </Text>
+              <Text style={styles.captureButtonText}>{uri ? 'Fotografar de novo' : 'Fotografar'}</Text>
             </TouchableOpacity>
           </View>
           {renderError()}
@@ -201,93 +217,61 @@ export function FieldRenderer({
     }
 
     case 'multi_image': {
-      // Multi-angle photo capture: value is AnglePhoto[]
       const photos: AnglePhoto[] = Array.isArray(value)
-        ? (value as AnglePhoto[])
+        ? (value as AnglePhoto[]).map((p) => ({ ...p, uri: resolveMediaUri(p.uri) }))
         : [];
-      const angles = field.config.angles ?? [];
-
       return (
         <MultiAngleCapture
           label={label}
           required={required}
           photos={photos}
-          angles={angles}
+          angles={config.angles ?? []}
           error={error}
-          onCapture={(angle) => onCaptureImage?.(field.name, angle, {
-            width: config.photoWidth,
-            height: config.photoHeight,
-          })}
-          onRemove={(angle) => {
-            const updated = photos.filter((p) => p.angle !== angle);
-            onChange(updated);
-          }}
+          onCapture={(angle) => onCaptureImage?.(field.key, angle, { width: config.photoWidth, height: config.photoHeight })}
+          onRemove={(angle) => onChange((Array.isArray(value) ? (value as AnglePhoto[]) : []).filter((p) => p.angle !== angle))}
         />
       );
     }
 
-    case 'date':
+    case 'gps': {
+      const point = isGeoPoint(value) ? (value as GeoPoint) : null;
       return (
-        <DateField
-          field={field}
-          value={value as string | undefined}
-          onChange={onChange}
-          error={error}
-        />
+        <View style={styles.container}>
+          {renderLabel()}
+          <TouchableOpacity style={[styles.captureButton, error && styles.inputError]} onPress={() => onCaptureLocation?.(field.key)}>
+            <Ionicons name={point ? 'refresh' : 'navigate'} size={20} color={Colors.primary} />
+            <Text style={styles.captureButtonText}>{point ? formatGeoPoint(point) : 'Capturar localização'}</Text>
+          </TouchableOpacity>
+          {point?.accuracy && point.accuracy > 20 ? <Text style={styles.warning}>Precisão baixa (±{Math.round(point.accuracy)} m) — tente de novo em céu aberto</Text> : null}
+          {renderError()}
+        </View>
       );
+    }
+
+    case 'date':
+      return <DateField field={field} value={value as string | undefined} onChange={onChange} error={error} />;
 
     case 'time':
-      return (
-        <TimeField
-          field={field}
-          value={value as string | undefined}
-          onChange={onChange}
-          error={error}
-        />
-      );
+      return <TimeField field={field} value={value as string | undefined} onChange={onChange} error={error} />;
 
     case 'scale':
-      return (
-        <ScaleField
-          field={field}
-          value={value as number | undefined}
-          onChange={onChange}
-          error={error}
-        />
-      );
+      return <ScaleField field={field} value={typeof value === 'number' ? value : value !== undefined && value !== '' ? Number(value) : undefined} onChange={onChange} error={error} />;
 
     case 'auto_timestamp':
-      return (
-        <View style={styles.container}>
-          {renderLabel()}
-          <View style={styles.autoField}>
-            <Ionicons name="time-outline" size={18} color={Colors.textSecondary} />
-            <Text style={styles.autoText}>{(value as string) ?? 'Preenchido automaticamente'}</Text>
-          </View>
-        </View>
-      );
-
     case 'auto_gps':
+    case 'auto_uuid': {
+      const icon = type === 'auto_timestamp' ? 'time-outline' : type === 'auto_gps' ? 'location-outline' : 'finger-print-outline';
+      const text = type === 'auto_gps' && isGeoPoint(value) ? formatGeoPoint(value) : typeof value === 'string' ? value : 'Preenchido ao salvar';
       return (
         <View style={styles.container}>
           {renderLabel()}
           <View style={styles.autoField}>
-            <Ionicons name="location-outline" size={18} color={Colors.textSecondary} />
-            <Text style={styles.autoText}>{(value as string) ?? 'Preenchido automaticamente'}</Text>
+            <Ionicons name={icon} size={18} color={Colors.textSecondary} />
+            <Text style={styles.autoText}>{text}</Text>
           </View>
         </View>
       );
-
-    case 'auto_uuid':
-      return (
-        <View style={styles.container}>
-          {renderLabel()}
-          <View style={styles.autoField}>
-            <Ionicons name="finger-print-outline" size={18} color={Colors.textSecondary} />
-            <Text style={styles.autoText}>{(value as string) ?? 'Preenchido automaticamente'}</Text>
-          </View>
-        </View>
-      );
+    }
 
     default:
       return (
@@ -305,7 +289,7 @@ function CategoryPicker({
   onChange,
   error,
 }: {
-  field: SchemaField;
+  field: VariableDefinition;
   value: string | undefined;
   onChange: (v: unknown) => void;
   error?: string;
@@ -372,7 +356,7 @@ function MultiCategoryPicker({
   onChange,
   error,
 }: {
-  field: SchemaField;
+  field: VariableDefinition;
   value: string[];
   onChange: (v: unknown) => void;
   error?: string;
@@ -419,7 +403,7 @@ function MultiCategoryPicker({
   );
 }
 
-// ── Date Field ──
+// ── Date Field (exibe DD/MM/AAAA, grava AAAA-MM-DD) ──
 function formatDateMask(raw: string): string {
   const digits = raw.replace(/\D/g, '').slice(0, 8);
   let result = '';
@@ -430,12 +414,20 @@ function formatDateMask(raw: string): string {
   return result;
 }
 
-function getTodayFormatted(): string {
+function displayToIso(display: string): string {
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(display);
+  return match ? `${match[3]}-${match[2]}-${match[1]}` : display;
+}
+
+function isoToDisplay(value: string | undefined): string {
+  if (!value) return '';
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : value;
+}
+
+function todayIso(): string {
   const now = new Date();
-  const dd = String(now.getDate()).padStart(2, '0');
-  const mm = String(now.getMonth() + 1).padStart(2, '0');
-  const yyyy = now.getFullYear();
-  return `${dd}/${mm}/${yyyy}`;
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 }
 
 function DateField({
@@ -444,32 +436,21 @@ function DateField({
   onChange,
   error,
 }: {
-  field: SchemaField;
+  field: VariableDefinition;
   value: string | undefined;
   onChange: (v: string) => void;
   error?: string;
 }) {
-  // Auto-fill with today if no value set
-  const initialValue = value ?? getTodayFormatted();
-  const [displayValue, setDisplayValue] = useState(initialValue);
+  const [displayValue, setDisplayValue] = useState(isoToDisplay(value));
 
-  // Notify parent of initial auto-fill
   React.useEffect(() => {
-    if (!value && initialValue) {
-      onChange(initialValue);
-    }
-  }, []);
+    setDisplayValue((current) => (displayToIso(current) === value ? current : isoToDisplay(value)));
+  }, [value]);
 
   const handleChangeText = (text: string) => {
     const masked = formatDateMask(text);
     setDisplayValue(masked);
-    onChange(masked);
-  };
-
-  const handleToday = () => {
-    const today = getTodayFormatted();
-    setDisplayValue(today);
-    onChange(today);
+    onChange(displayToIso(masked));
   };
 
   return (
@@ -479,7 +460,7 @@ function DateField({
           {field.label}
           {field.required && <Text style={styles.required}> *</Text>}
         </Text>
-        <TouchableOpacity onPress={handleToday} style={styles.todayBtn}>
+        <TouchableOpacity onPress={() => onChange(todayIso())} style={styles.todayBtn}>
           <Text style={styles.todayBtnText}>Hoje</Text>
         </TouchableOpacity>
       </View>
@@ -504,7 +485,7 @@ function ScaleField({
   onChange,
   error,
 }: {
-  field: SchemaField;
+  field: VariableDefinition;
   value: number | undefined;
   onChange: (v: unknown) => void;
   error?: string;
@@ -566,33 +547,11 @@ function TimeField({
   onChange,
   error,
 }: {
-  field: SchemaField;
+  field: VariableDefinition;
   value: string | undefined;
   onChange: (v: string) => void;
   error?: string;
 }) {
-  const initialValue = value ?? getNowFormatted();
-  const [displayValue, setDisplayValue] = useState(initialValue);
-
-  // Notify parent of initial auto-fill
-  React.useEffect(() => {
-    if (!value && initialValue) {
-      onChange(initialValue);
-    }
-  }, []);
-
-  const handleChangeText = (text: string) => {
-    const masked = formatTimeMask(text);
-    setDisplayValue(masked);
-    onChange(masked);
-  };
-
-  const handleNow = () => {
-    const now = getNowFormatted();
-    setDisplayValue(now);
-    onChange(now);
-  };
-
   return (
     <View style={styles.container}>
       <View style={styles.dateLabelRow}>
@@ -600,14 +559,14 @@ function TimeField({
           {field.label}
           {field.required && <Text style={styles.required}> *</Text>}
         </Text>
-        <TouchableOpacity onPress={handleNow} style={styles.todayBtn}>
+        <TouchableOpacity onPress={() => onChange(getNowFormatted())} style={styles.todayBtn}>
           <Text style={styles.todayBtnText}>Agora</Text>
         </TouchableOpacity>
       </View>
       <TextInput
         style={[styles.input, error ? styles.inputError : undefined]}
-        value={displayValue}
-        onChangeText={handleChangeText}
+        value={value ?? ''}
+        onChangeText={(text) => onChange(formatTimeMask(text))}
         placeholder="HH:MM"
         placeholderTextColor={Colors.textSecondary}
         keyboardType="numeric"
@@ -634,6 +593,48 @@ const styles = StyleSheet.create({
   unit: {
     color: Colors.textSecondary,
     fontWeight: '400',
+  },
+  detail: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    marginTop: -2,
+    marginBottom: 6,
+  },
+  inputWarning: {
+    borderColor: Colors.warning,
+  },
+  warning: {
+    fontSize: 12,
+    color: Colors.warning,
+    marginTop: 4,
+  },
+  inlineRow: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+  },
+  iconBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primarySurface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sensorBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 6,
+    paddingVertical: 6,
+  },
+  sensorText: {
+    fontSize: 13,
+    color: Colors.primary,
+    fontWeight: '600',
+    flex: 1,
   },
   input: {
     backgroundColor: Colors.surface,

@@ -131,7 +131,7 @@ export function validateValue(variable: VariableDefinition, value: unknown): Val
 
     case 'date':
       if (typeof value !== 'string' || !DATE_RE.test(value) || Number.isNaN(Date.parse(value))) {
-        fail(`${label}: use o formato AAAA-MM-DD`);
+        fail(`${label}: data inválida (use DD/MM/AAAA)`);
       }
       break;
 

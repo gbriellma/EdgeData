@@ -1,20 +1,24 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import * as DocumentPicker from 'expo-document-picker';
 
-import { getDatabase, resetDatabase } from './database';
+import { checkpoint, closeDb, DB_NAME } from './connection';
 
 // ── Constants ──────────────────────────────────────────────────────────────
-
-const DB_NAME = 'edgedata.db';
 
 const DB_DIR = `${FileSystem.documentDirectory}SQLite/`;
 const DB_PATH = `${DB_DIR}${DB_NAME}`;
 
-const IMAGES_DIR = `${FileSystem.documentDirectory}images/`;
+// Fotos e anexos (ver lib/media.ts)
+const IMAGES_DIR = `${FileSystem.documentDirectory}media/`;
 
 const BACKUP_DIR = `${FileSystem.documentDirectory}backups/`;
 
 // ── Internal helpers ───────────────────────────────────────────────────────
+
+interface JSZipEntry {
+  dir: boolean;
+  async(type: 'base64'): Promise<string>;
+}
 
 async function ensureDirExists(dir: string): Promise<void> {
   const info = await FileSystem.getInfoAsync(dir);
@@ -62,8 +66,7 @@ function isNativeZipAvailable(): boolean {
  * Falls back to JSZip (in-memory) for Expo Go — works for small projects.
  */
 export async function createBackup(): Promise<string> {
-  const db = await getDatabase();
-  await db.execAsync('PRAGMA wal_checkpoint(TRUNCATE);');
+  await checkpoint();
 
   await ensureDirExists(BACKUP_DIR);
   const timestamp = Date.now();
@@ -85,7 +88,7 @@ async function createBackupNative(zipPath: string): Promise<string> {
 
   const tempDir = `${FileSystem.cacheDirectory}backup_temp_${Date.now()}/`;
   const tempDbDir = `${tempDir}database/`;
-  const tempImagesDir = `${tempDir}images/`;
+  const tempImagesDir = `${tempDir}media/`;
 
   // Clean up any previous temp dir
   const tempInfo = await FileSystem.getInfoAsync(tempDir);
@@ -149,7 +152,7 @@ async function createBackupJSZip(zipPath: string): Promise<string> {
       let imgBase64: string | null = await FileSystem.readAsStringAsync(imgPath, {
         encoding: FileSystem.EncodingType.Base64,
       });
-      zipObj.file(`images/${relative}`, imgBase64, { base64: true, compression: 'STORE' });
+      zipObj.file(`media/${relative}`, imgBase64, { base64: true, compression: 'STORE' });
       imgBase64 = null;
     }
   }
@@ -188,8 +191,10 @@ export async function restoreBackup(zipPath?: string): Promise<void> {
     resolvedZipPath = asset.uri;
   }
 
-  // Close the current database connection before overwriting
-  await resetDatabase();
+  // Fecha a conexão e remove arquivos WAL antes de sobrescrever o banco
+  await closeDb();
+  await FileSystem.deleteAsync(`${DB_PATH}-wal`, { idempotent: true });
+  await FileSystem.deleteAsync(`${DB_PATH}-shm`, { idempotent: true });
 
   if (isNativeZipAvailable()) {
     await restoreBackupNative(resolvedZipPath);
@@ -221,7 +226,7 @@ async function restoreBackupNative(zipPath: string): Promise<void> {
   await FileSystem.copyAsync({ from: tempDbPath, to: DB_PATH });
 
   // Restore images
-  const tempImagesDir = `${tempDir}images/`;
+  const tempImagesDir = `${tempDir}media/`;
   const imagesInfo = await FileSystem.getInfoAsync(tempImagesDir);
   if (imagesInfo.exists) {
     // Clear existing images
@@ -270,12 +275,12 @@ async function restoreBackupJSZip(zipPath: string): Promise<void> {
   });
 
   // Restore images
-  const imageFiles = zipObj.folder('images');
+  const imageFiles = zipObj.folder('media');
   if (imageFiles) {
     await ensureDirExists(IMAGES_DIR);
 
-    const imageEntries: Array<{ relativePath: string; file: any }> = [];
-    imageFiles.forEach((relativePath: string, file: any) => {
+    const imageEntries: { relativePath: string; file: JSZipEntry }[] = [];
+    imageFiles.forEach((relativePath: string, file: JSZipEntry) => {
       if (!file.dir) {
         imageEntries.push({ relativePath, file });
       }

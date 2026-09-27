@@ -11,16 +11,16 @@ import {
 import { Colors } from '@/constants/colors';
 
 interface QRScannerProps {
-  onScanned: (subjectId: string) => void;
+  /** Texto bruto lido (QR, Data Matrix ou código de barras) */
+  onScanned: (raw: string) => void;
   onClose: () => void;
+  hint?: string;
 }
 
-const QR_URI_PREFIX = 'edgedata://subject/';
-// Aceita etiquetas antigas impressas com outro esquema de URI (<esquema>://subject/<uuid>)
-const QR_SUBJECT_PATTERN = /^[a-z][a-z0-9+.-]*:\/\/subject\/([0-9a-f-]{36})$/i;
-const SCAN_DEBOUNCE_MS = 2000;
+const SCAN_DEBOUNCE_MS = 1500;
+const BARCODE_TYPES = ['qr', 'datamatrix', 'aztec', 'pdf417', 'code128', 'code39', 'code93', 'ean13', 'ean8', 'upc_a', 'upc_e', 'itf14', 'codabar'] as const;
 
-export default function QRScanner({ onScanned, onClose }: QRScannerProps) {
+export default function QRScanner({ onScanned, onClose, hint }: QRScannerProps) {
   const [permission, requestPermission] = useCameraPermissions();
   const lastScanAt = useRef<number>(0);
   const [scanned, setScanned] = useState(false);
@@ -28,21 +28,10 @@ export default function QRScanner({ onScanned, onClose }: QRScannerProps) {
   const handleBarCodeScanned = useCallback(
     ({ data }: { data: string }) => {
       const now = Date.now();
-      if (now - lastScanAt.current < SCAN_DEBOUNCE_MS) return;
-
-      let subjectId: string | null = null;
-      if (data.startsWith(QR_URI_PREFIX)) {
-        subjectId = data.slice(QR_URI_PREFIX.length);
-      } else {
-        const match = QR_SUBJECT_PATTERN.exec(data.trim());
-        if (match) subjectId = match[1];
-      }
-      if (!subjectId) return;
-
+      if (!data || now - lastScanAt.current < SCAN_DEBOUNCE_MS) return;
       lastScanAt.current = now;
       setScanned(true);
-
-      onScanned(subjectId);
+      onScanned(data);
     },
     [onScanned],
   );
@@ -59,7 +48,7 @@ export default function QRScanner({ onScanned, onClose }: QRScannerProps) {
     return (
       <View style={styles.centered}>
         <Text style={styles.permissionText}>
-          É necessário permitir o acesso à câmera para escanear QR codes.
+          É necessário permitir o acesso à câmera para ler códigos.
         </Text>
         <Pressable style={styles.permissionButton} onPress={requestPermission}>
           <Text style={styles.permissionButtonText}>Conceder permissão</Text>
@@ -76,7 +65,7 @@ export default function QRScanner({ onScanned, onClose }: QRScannerProps) {
       <CameraView
         style={StyleSheet.absoluteFillObject}
         facing="back"
-        barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
+        barcodeScannerSettings={{ barcodeTypes: [...BARCODE_TYPES] }}
         onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
       />
 
@@ -96,9 +85,7 @@ export default function QRScanner({ onScanned, onClose }: QRScannerProps) {
         </View>
         <View style={styles.overlayBottom}>
           <Text style={styles.hint}>
-            {scanned
-              ? 'QR code detectado!'
-              : 'Aponte a câmera para o QR code do sujeito'}
+            {scanned ? 'Código lido!' : hint ?? 'Aponte a câmera para o QR Code ou código de barras'}
           </Text>
         </View>
       </View>
