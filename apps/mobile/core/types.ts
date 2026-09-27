@@ -89,6 +89,11 @@ export interface VariableDefinition {
   config: VariableConfig;
 }
 
+/** Variável como gravada numa versão do protocolo. */
+export interface ProtocolVariable extends VariableDefinition {
+  scope: VariableScope;
+}
+
 // ── Desenho experimental ─────────────────────────────────────────────────────
 
 export interface Factor {
