@@ -1,3 +1,4 @@
+// No app, o metro.config.js resolve a entrada "browser" (sem `fs`) deste pacote
 import { parquetWriteBuffer } from 'hyparquet-writer';
 import { coerceCell, isBlankCell, type ColumnType, type Table } from './table';
 
