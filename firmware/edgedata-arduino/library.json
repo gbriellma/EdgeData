@@ -1,0 +1,14 @@
+{
+  "name": "EdgeData",
+  "version": "0.1.0",
+  "description": "Envia leituras de sensores ao app EdgeData por Bluetooth LE e Serial (EdgeData Device Protocol v1).",
+  "keywords": ["edgedata", "ble", "sensors", "dataset", "science"],
+  "repository": { "type": "git", "url": "https://github.com/gbriellma/EdgeData.git" },
+  "authors": [{ "name": "Gabriel Lima", "email": "gabriellimadxgg@gmail.com", "maintainer": true }],
+  "frameworks": "arduino",
+  "platforms": "espressif32",
+  "dependencies": [
+    { "owner": "bblanchon", "name": "ArduinoJson", "version": "^7.0.0" },
+    { "owner": "h2zero", "name": "NimBLE-Arduino", "version": "^2.1.0" }
+  ]
+}
